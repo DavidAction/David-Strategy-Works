@@ -1337,11 +1337,56 @@ def text_from_pdf(data: bytes) -> str:
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
 
+COMMON_TESSERACT_PATHS = [
+    Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
+    Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
+    Path(r"C:\tools\tesseract\tesseract.exe"),
+]
+
+COMMON_PDFTOPPM_PATHS = [
+    Path(r"C:\ProgramData\chocolatey\bin\pdftoppm.exe"),
+    Path(r"C:\tools\poppler\bin\pdftoppm.exe"),
+    Path(r"C:\tools\poppler\Library\bin\pdftoppm.exe"),
+    Path(r"C:\Program Files\poppler\Library\bin\pdftoppm.exe"),
+    Path(r"C:\Program Files\poppler\bin\pdftoppm.exe"),
+]
+
+COMMON_PDFTOPPM_ROOTS = [
+    Path(r"C:\tools\poppler"),
+    Path(r"C:\Program Files\poppler"),
+    Path(r"C:\ProgramData\chocolatey\lib\poppler"),
+]
+
+
+def resolve_external_command(command: str, common_paths: list[Path], search_roots: list[Path] | None = None, executable_name: str | None = None) -> str:
+    resolved = shutil.which(command)
+    if resolved:
+        return resolved
+    path = Path(command)
+    if path.exists():
+        return str(path)
+    for candidate in common_paths:
+        if candidate.exists():
+            return str(candidate)
+    if executable_name:
+        for root in search_roots or []:
+            if not root.exists():
+                continue
+            match = next(root.rglob(executable_name), None)
+            if match and match.exists():
+                return str(match)
+    return ""
+
 
 def ocr_pdf_bytes(data: bytes, notes: list[str], max_pages: int = 8) -> str:
     if not data:
         return ""
-    pdftoppm = shutil.which(os.environ.get("PDFTOPPM_CMD", "pdftoppm"))
+    pdftoppm = resolve_external_command(
+        os.environ.get("PDFTOPPM_CMD", "pdftoppm"),
+        COMMON_PDFTOPPM_PATHS,
+        COMMON_PDFTOPPM_ROOTS,
+        "pdftoppm.exe",
+    )
     if not pdftoppm:
         notes.append("스캔 PDF OCR을 위해 pdftoppm이 필요합니다. Poppler 설치 후 PDFTOPPM_CMD를 설정하면 PDF 페이지 OCR을 시도합니다.")
         return ""
@@ -1376,7 +1421,7 @@ def ocr_pdf_bytes(data: bytes, notes: list[str], max_pages: int = 8) -> str:
 def ocr_image_bytes(data: bytes, ext: str, notes: list[str]) -> str:
     if not data:
         return ""
-    cmd = os.environ.get("TESSERACT_CMD", "tesseract")
+    cmd = resolve_external_command(os.environ.get("TESSERACT_CMD", "tesseract"), COMMON_TESSERACT_PATHS) or os.environ.get("TESSERACT_CMD", "tesseract")
     lang = os.environ.get("OCR_LANG", "kor+eng")
     suffix = ext if ext in IMAGE_EXTENSIONS else ".png"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -1413,7 +1458,7 @@ def build_ocr_status(filename: str, extracted_text: str, notes: list[str]) -> di
     ext = Path(filename or "").suffix.lower()
     needs_ocr = ext in IMAGE_EXTENSIONS or (ext == ".pdf" and len(clean_text(extracted_text)) < 40)
     engine = os.environ.get("TESSERACT_CMD", "tesseract")
-    available = bool(shutil.which(engine))
+    available = bool(resolve_external_command(engine, COMMON_TESSERACT_PATHS))
     status = "not_needed"
     if needs_ocr and extracted_text.strip():
         status = "completed_or_text_available"

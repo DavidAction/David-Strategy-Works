@@ -24,8 +24,15 @@ COMMON_TESSERACT_PATHS = [
 COMMON_PDFTOPPM_PATHS = [
     Path(r"C:\ProgramData\chocolatey\bin\pdftoppm.exe"),
     Path(r"C:\tools\poppler\bin\pdftoppm.exe"),
+    Path(r"C:\tools\poppler\Library\bin\pdftoppm.exe"),
     Path(r"C:\Program Files\poppler\Library\bin\pdftoppm.exe"),
     Path(r"C:\Program Files\poppler\bin\pdftoppm.exe"),
+]
+
+COMMON_PDFTOPPM_ROOTS = [
+    Path(r"C:\tools\poppler"),
+    Path(r"C:\Program Files\poppler"),
+    Path(r"C:\ProgramData\chocolatey\lib\poppler"),
 ]
 
 
@@ -39,6 +46,13 @@ def resolve_command(command: str, common_paths: list[Path]) -> str:
     for candidate in common_paths:
         if candidate.exists():
             return str(candidate)
+    if "pdftoppm" in command.lower():
+        for root in COMMON_PDFTOPPM_ROOTS:
+            if not root.exists():
+                continue
+            match = next(root.rglob("pdftoppm.exe"), None)
+            if match and match.exists():
+                return str(match)
     return ""
 
 
