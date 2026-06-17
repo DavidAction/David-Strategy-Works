@@ -381,6 +381,20 @@ label {
   margin-bottom: 6px;
 }
 
+.optional-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--subtle);
+  background: #11141a;
+  font-size: 10px;
+  vertical-align: 1px;
+}
+
 input,
 textarea,
 select {

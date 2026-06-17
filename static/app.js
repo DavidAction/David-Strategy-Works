@@ -606,11 +606,15 @@ function clearDocumentQueue() {
 }
 
 async function analyzeDocuments() {
+  const fileInput = qs("#companyDocs");
+  if (fileInput?.files?.length) {
+    enqueueCompanyDocuments({ target: fileInput });
+  }
   const queuedFiles = [...state.documentQueue];
   const pasted = qs("#documentText").value.trim();
   const notes = qs("#additionalNotes").value.trim();
   if (!queuedFiles.length && !pasted && !notes) {
-    setStatus("회사 문서 또는 추가 의견이 필요합니다.");
+    setStatus("분석할 파일을 대기열에 추가하거나 문서 텍스트를 입력하세요. 추가 의견은 선택입니다.");
     return;
   }
 
