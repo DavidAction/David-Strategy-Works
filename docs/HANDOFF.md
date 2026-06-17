@@ -63,3 +63,6 @@ API 키가 없으면 로컬 규칙 기반 생성기로 동작합니다.
 - Frontend entry points: `static/app.js`의 `reviseDraftFromComments`, `updateCurrentVersion`, `exportDraftVersion`.
 - Backend entry points: `server.py`의 `/api/versions/revise`, `/api/versions/update`, `/api/versions/{profileId}/{versionId}/export`.
 - Generated drafts are auto-saved, comment revisions create new versions, and each version can be opened, edited, updated, and exported independently.
+- Document extraction hardening lives in `extract_text`, `text_from_pdf`, `ocr_pdf_bytes`, and `document_remediation_actions`.
+- Submission quality reports are attached by `build_template_fill_manifest`, `build_judge_review_pack`, `build_visual_placement_plan`, `build_security_report`, and `attach_grounding_audit`.
+- Operational documents: `docs/SECURITY.md` and `docs/TEST_PLAN.md`.

@@ -902,6 +902,77 @@ select:focus {
   margin-bottom: 16px;
 }
 
+.ops-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.ops-card {
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #11141a;
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.ops-card.ok {
+  border-color: rgba(85, 183, 164, 0.34);
+  background: #12211e;
+}
+
+.ops-card.needs_work,
+.ops-card.needs_review {
+  border-color: rgba(199, 166, 90, 0.36);
+  background: #1b1711;
+}
+
+.ops-card span,
+.ops-columns h4 {
+  display: block;
+  color: var(--subtle);
+  font-size: 12px;
+  font-weight: 800;
+  margin: 0 0 6px;
+}
+
+.ops-card strong {
+  display: block;
+  color: var(--ink);
+  line-height: 1.35;
+}
+
+.ops-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.ops-card ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  line-height: 1.55;
+  font-size: 12px;
+}
+
+.ops-card li + li {
+  margin-top: 5px;
+}
+
+.ops-card li strong {
+  display: inline;
+  color: var(--gold);
+}
+
+.ops-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .trace-hero,
 .claim-hero {
   grid-column: 1 / -1;

@@ -851,6 +851,7 @@ async function generateDraft() {
         grantName: qs("#grantName").value.trim(),
         length: qs("#lengthMode").value,
         templateGuidance: state.templateGuidance,
+        profileId: state.activeProfileId || "default-workspace",
         useAI: true,
       },
     }),
@@ -871,6 +872,7 @@ function renderDraft() {
     renderAiEngine();
     renderScorecard();
     renderValidation();
+    renderOperationalReports();
     renderEvidenceTraceability();
     renderUnsupportedClaimAudit();
     renderVisualAssets();
@@ -882,6 +884,7 @@ function renderDraft() {
   renderAiEngine();
   renderScorecard();
   renderValidation();
+  renderOperationalReports();
   renderEvidenceTraceability();
   renderUnsupportedClaimAudit();
   renderVisualAssets();
@@ -1139,6 +1142,97 @@ function renderValidation() {
         `
       )
       .join("");
+  });
+}
+
+function renderOperationalReports() {
+  renderTemplateFillManifest();
+  renderJudgeReviewPack();
+  renderSecurityReport();
+  renderWorkspaceManagement();
+}
+
+function renderTemplateFillManifest() {
+  const targets = [qs("#templateFillManifest"), qs("#exportTemplateFillManifest")].filter(Boolean);
+  const manifest = state.plan?.templateFillManifest;
+  targets.forEach((root) => {
+    if (!manifest) {
+      root.innerHTML = "";
+      return;
+    }
+    const rows = (manifest.rows || [])
+      .slice(0, 6)
+      .map((row) => `<li>${Number(row.order || 0)}. ${escapeHtml(row.templatePrompt || row.draftHeading || "")} <strong>${Number(row.answerCharacters || 0).toLocaleString()}자</strong></li>`)
+      .join("");
+    root.innerHTML = `
+      <article class="ops-card ${escapeAttr(manifest.status || "")}">
+        <span>HWPX 양식 기입 매핑</span>
+        <strong>${manifest.exactCellFillReady ? "문항 단위 매핑 준비" : "수동 확인 필요"}</strong>
+        <p>${escapeHtml(manifest.message || "")}</p>
+        <ul>${rows}</ul>
+      </article>
+    `;
+  });
+}
+
+function renderJudgeReviewPack() {
+  const targets = [qs("#judgeReviewPack"), qs("#exportJudgeReviewPack")].filter(Boolean);
+  const pack = state.plan?.judgeReviewPack;
+  targets.forEach((root) => {
+    if (!pack) {
+      root.innerHTML = "";
+      return;
+    }
+    const questions = (pack.judgeQuestions || []).slice(0, 4).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+    const risks = (pack.rejectionRisks || []).slice(0, 4).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+    root.innerHTML = `
+      <article class="ops-card ${escapeAttr(pack.status || "")}">
+        <span>심사위원 예상 질문</span>
+        <strong>${Number((pack.judgeQuestions || []).length)}개 질문 · ${Number((pack.rejectionRisks || []).length)}개 리스크</strong>
+        <div class="ops-columns">
+          <section><h4>질문</h4><ul>${questions || "<li>예상 질문이 없습니다.</li>"}</ul></section>
+          <section><h4>리스크</h4><ul>${risks || "<li>주요 리스크가 없습니다.</li>"}</ul></section>
+        </div>
+      </article>
+    `;
+  });
+}
+
+function renderSecurityReport() {
+  const targets = [qs("#securityReport"), qs("#exportSecurityReport")].filter(Boolean);
+  const report = state.plan?.securityReport || state.documentInsights?.securityReport;
+  targets.forEach((root) => {
+    if (!report) {
+      root.innerHTML = "";
+      return;
+    }
+    const actions = (report.recommendedActions || []).slice(0, 4).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+    root.innerHTML = `
+      <article class="ops-card ${escapeAttr(report.status || "")}">
+        <span>보안·개인정보 점검</span>
+        <strong>민감문서 ${Number(report.restrictedDocumentCount || 0)}건 · Git 보호 ${report.gitignoreProtected ? "정상" : "확인 필요"}</strong>
+        <ul>${actions}</ul>
+      </article>
+    `;
+  });
+}
+
+function renderWorkspaceManagement() {
+  const targets = [qs("#workspaceManagement"), qs("#exportWorkspaceManagement")].filter(Boolean);
+  const workspace = state.plan?.workspaceManagement;
+  targets.forEach((root) => {
+    if (!workspace) {
+      root.innerHTML = "";
+      return;
+    }
+    const actions = (workspace.recommendedActions || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+    root.innerHTML = `
+      <article class="ops-card ok">
+        <span>프로젝트 관리</span>
+        <strong>${escapeHtml(workspace.profileId || "default-workspace")} · 문서 ${Number(workspace.documentCount || 0)}개 · 버전 ${Number(workspace.versionCount || 0)}개</strong>
+        <ul>${actions}</ul>
+      </article>
+    `;
   });
 }
 

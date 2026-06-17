@@ -46,6 +46,7 @@ Windows에서는 더 쉽게 실행할 수 있습니다.
 - 양식 분석: 문항, 요구사항, 키워드, 선정 기준, 원본 양식 메타데이터 추출
 - 제출 형식 검증: 문항 수, 순서, 제목, 본문 누락, 페이지 분량, 구성 브리프, 형식 규칙 확인
 - 시각자료 설계: 표, 인포그래픽, 이미지 생성 브리프를 초안과 검토 화면에 배치
+- 심사/운영 리포트: HWPX 양식 기입 매핑, 심사위원 예상 질문, 탈락 리스크, 보안 점검, 워크스페이스 관리 리포트 표시
 - 내보내기: `.hwpx`, 검토용 `.html`, 초안 `.json`, 원본 양식·답변 매핑 패키지
 - 글꼴: `static/fonts/PretendardVariable.woff2`를 번들링하고 웹앱·HTML·HWPX에서 Pretendard Variable 우선 사용
 
@@ -67,6 +68,8 @@ API 키가 있으면 단계별로 멀티 모델을 사용하도록 설계되어 
 `data/`, `exports/`, `.env`, 로그 파일은 `.gitignore`에 포함되어 있습니다. 실제 사업자등록증, 등기부등본, 재무자료, 회사 기밀 문서는 public repository에 올리지 마세요.
 
 다른 PC로 기존 작업을 옮기려면 GitHub clone 후 기존 PC의 `data/`, `exports/`, `.env`를 새 PC의 프로젝트 폴더로 복사하세요.
+
+보안 운영 지침은 [docs/SECURITY.md](docs/SECURITY.md), 실전 검증 체크리스트는 [docs/TEST_PLAN.md](docs/TEST_PLAN.md)를 참고하세요.
 
 ## 다음 제품화 과제
 

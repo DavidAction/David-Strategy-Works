@@ -487,7 +487,7 @@ def comment_lines(comments: str) -> list[str]:
     cleaned = clean_text(comments)
     lines = [line.strip(" -•\t") for line in re.split(r"[\n\r]+", cleaned) if line.strip(" -•\t")]
     if len(lines) <= 1:
-        parts = re.split(r"(?<=[.!?。])\s+|[;；]+", cleaned)
+        parts = re.split(r"(?<=[.!。])\s+|[;；]+", cleaned)
         lines = [part.strip(" -•\t") for part in parts if part.strip(" -•\t")]
     return lines[:12]
 
@@ -519,6 +519,33 @@ def section_revision_comments(section: dict[str, Any], lines: list[str]) -> list
         if category in targets or "overview" in targets or any(token and token in heading for token in re.findall(r"[0-9A-Za-z가-힣]{2,}", line.lower())[:4]):
             selected.append(line)
     return selected[:4]
+
+
+def build_revision_diff(base_plan: dict[str, Any], revised_plan: dict[str, Any], comments: list[str]) -> dict[str, Any]:
+    base_sections = {section.get("id", f"s{index}"): section for index, section in enumerate(base_plan.get("sections") or [])}
+    changes: list[dict[str, Any]] = []
+    for index, section in enumerate(revised_plan.get("sections") or []):
+        section_id = section.get("id", f"s{index}")
+        before = clean_text((base_sections.get(section_id) or {}).get("content", ""))
+        after = clean_text(section.get("content", ""))
+        if before == after:
+            continue
+        changes.append(
+            {
+                "sectionId": section_id,
+                "heading": section.get("heading", ""),
+                "beforeCharacters": len(before),
+                "afterCharacters": len(after),
+                "deltaCharacters": len(after) - len(before),
+                "changed": True,
+            }
+        )
+    return {
+        "commentCount": len(comments),
+        "changedSectionCount": len(changes),
+        "changes": changes,
+        "summary": f"코멘트 {len(comments)}개를 반영해 {len(changes)}개 문항을 수정했습니다.",
+    }
 
 
 def revise_plan_with_comments(base_plan: dict[str, Any], comments: str, label: str = "") -> dict[str, Any]:
@@ -562,7 +589,8 @@ def revise_plan_with_comments(base_plan: dict[str, Any], comments: str, label: s
             "message": f"{len(lines)}개 코멘트를 반영해 새 사업계획서 버전을 생성했습니다.",
         }
     )
-    return plan
+    plan["revisionDiff"] = build_revision_diff(base_plan, plan, lines)
+    return attach_grounding_audit(plan, plan.get("documentInsights") or {})
 
 
 def revise_draft_version(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1121,10 +1149,57 @@ def text_from_pdf(data: bytes) -> str:
             page_text = page.extract_text() or ""
             if page_text.strip():
                 lines.append(page_text)
+            try:
+                tables = page.extract_tables() or []
+            except Exception:
+                tables = []
+            for table in tables[:6]:
+                rows = []
+                for row in table[:80]:
+                    cells = [clean_text(str(cell or "")) for cell in row]
+                    if any(cells):
+                        rows.append(" | ".join(cells))
+                if rows:
+                    lines.append("[PDF 표 추출]\n" + "\n".join(rows))
     return clean_text("\n\n".join(lines))
 
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
+
+
+def ocr_pdf_bytes(data: bytes, notes: list[str], max_pages: int = 8) -> str:
+    if not data:
+        return ""
+    pdftoppm = shutil.which(os.environ.get("PDFTOPPM_CMD", "pdftoppm"))
+    if not pdftoppm:
+        notes.append("스캔 PDF OCR을 위해 pdftoppm이 필요합니다. Poppler 설치 후 PDFTOPPM_CMD를 설정하면 PDF 페이지 OCR을 시도합니다.")
+        return ""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pdf_path = Path(tmp_dir) / "source.pdf"
+        prefix = Path(tmp_dir) / "page"
+        pdf_path.write_bytes(data)
+        try:
+            result = subprocess.run(
+                [pdftoppm, "-png", "-r", "200", "-f", "1", "-l", str(max_pages), str(pdf_path), str(prefix)],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+        except Exception as exc:
+            notes.append(f"PDF OCR 이미지 변환 실패: {exc}")
+            return ""
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()[:240]
+            notes.append(f"PDF OCR 이미지 변환 실패: {detail}")
+            return ""
+        ocr_parts: list[str] = []
+        for image_path in sorted(Path(tmp_dir).glob("page-*.png"))[:max_pages]:
+            ocr_parts.append(ocr_image_bytes(image_path.read_bytes(), ".png", notes))
+        text = clean_text("\n\n".join(part for part in ocr_parts if part.strip()))
+        if text:
+            notes.append(f"스캔 PDF {len(ocr_parts)}페이지를 OCR로 보강했습니다.")
+        return text
 
 
 def ocr_image_bytes(data: bytes, ext: str, notes: list[str]) -> str:
@@ -1201,7 +1276,10 @@ def extract_text(filename: str, data: bytes, pasted_text: str = "") -> tuple[str
         elif ext == ".pdf":
             extracted = text_from_pdf(data)
             if len(clean_text(extracted)) < 40 and data:
-                notes.append("PDF에서 텍스트가 거의 추출되지 않았습니다. 스캔 PDF일 가능성이 있어 OCR 처리가 필요할 수 있습니다.")
+                notes.append("PDF에서 텍스트가 거의 추출되지 않았습니다. 스캔 PDF일 가능성이 있어 OCR 처리를 시도합니다.")
+                ocr_text = ocr_pdf_bytes(data, notes)
+                if ocr_text:
+                    extracted = clean_text("\n\n".join([extracted, ocr_text]))
         elif ext in IMAGE_EXTENSIONS:
             extracted = ocr_image_bytes(data, ext, notes)
         elif ext == ".hwp":
@@ -1222,11 +1300,11 @@ def extract_text(filename: str, data: bytes, pasted_text: str = "") -> tuple[str
 
 def infer_document_type(filename: str, text: str) -> str:
     haystack = f"{filename}\n{text[:3000]}".lower()
-    if "사업자등록" in haystack or "business registration" in haystack:
+    if "사업자등록" in haystack or "business registration" in haystack or "business_registration" in haystack:
         return "business_registration"
     if "등기부" in haystack or "등기사항" in haystack or "법인등기" in haystack:
         return "corporate_registry"
-    if "사업계획" in haystack or "business plan" in haystack or "창업아이템" in haystack:
+    if "사업계획" in haystack or "business plan" in haystack or "business_plan" in haystack or "창업아이템" in haystack:
         return "existing_business_plan"
     if "재무" in haystack or "손익" in haystack or "매출" in haystack or "balance sheet" in haystack:
         return "finance"
@@ -1640,6 +1718,63 @@ def build_document_library_summary(analyzed_docs: list[dict[str, Any]], facts: l
     }
 
 
+def build_security_report(analyzed_docs: list[dict[str, Any]] | None = None, plan: dict[str, Any] | None = None) -> dict[str, Any]:
+    analyzed_docs = analyzed_docs or []
+    restricted = [
+        doc
+        for doc in analyzed_docs
+        if (doc.get("securityClassification") or {}).get("level") == "restricted"
+    ]
+    gitignore_path = ROOT / ".gitignore"
+    gitignore_text = gitignore_path.read_text(encoding="utf-8") if gitignore_path.exists() else ""
+    required_ignores = ["data/", "exports/", ".env", "server.log"]
+    missing_ignores = [item for item in required_ignores if item not in gitignore_text]
+    actions: list[str] = []
+    if restricted:
+        actions.append("민감 문서가 감지됐습니다. 외부 API 전송 전 사용자 확인 옵션을 켜고, 공개 저장소에 data/와 exports/를 올리지 마세요.")
+    if missing_ignores:
+        actions.append(".gitignore 보호 항목이 부족합니다: " + ", ".join(missing_ignores))
+    if not actions:
+        actions.append("현재 로컬 저장 정책과 .gitignore 기본 보호 상태가 적절합니다.")
+    return {
+        "status": "needs_review" if restricted or missing_ignores else "ok",
+        "restrictedDocumentCount": len(restricted),
+        "restrictedDocuments": [
+            {
+                "filename": doc.get("filename", ""),
+                "signals": (doc.get("securityClassification") or {}).get("signals", []),
+                "message": (doc.get("securityClassification") or {}).get("message", ""),
+            }
+            for doc in restricted[:12]
+        ],
+        "gitignoreProtected": not missing_ignores,
+        "missingGitignoreRules": missing_ignores,
+        "apiTransmissionPolicy": "API 키를 연결한 뒤에는 민감문서 전송 전 사용자 확인 옵션을 기본값으로 유지하세요.",
+        "recommendedActions": actions,
+        "checkedAt": dt.datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def build_workspace_management_report(profile_id: str, document_insights: dict[str, Any], template: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
+    versions = list_draft_versions(profile_id or "default-workspace").get("versions", [])
+    docs = (document_insights or {}).get("documents", []) or []
+    template_source = template.get("templateSource") or plan.get("templateSource") or {}
+    return {
+        "profileId": profile_id or "default-workspace",
+        "companyName": plan.get("companyName", ""),
+        "grantName": plan.get("grantName", ""),
+        "documentCount": len(docs),
+        "versionCount": len(versions),
+        "latestVersion": versions[0] if versions else None,
+        "templateStored": bool(template_source.get("storedName")),
+        "recommendedActions": [
+            "지원사업별로 별도 버전을 저장하고, 제출 직전 버전은 라벨에 공고명과 날짜를 포함하세요.",
+            "문서 허브에서 중요도 높은 문서를 먼저 보강하고, 중복 문서는 정리하세요.",
+            "다른 PC로 옮길 때는 data/, exports/, .env를 별도 보안 채널로 복사하세요.",
+        ],
+    }
+
+
 BUSINESS_UNDERSTANDING_AREAS: list[dict[str, Any]] = [
     {
         "id": "overview",
@@ -1766,6 +1901,48 @@ def document_extraction_completeness(
         "score": 30 if not failed else 10,
         "message": "추출 텍스트가 짧아 사업 이해 모델의 근거로 쓰기 어렵습니다. 원문 텍스트 보강이 필요합니다.",
         "requiresReview": True,
+    }
+
+
+def document_remediation_actions(filename: str, document_type: str, text: str, notes: list[str], ocr_status: dict[str, Any]) -> list[str]:
+    ext = Path(filename or "").suffix.lower()
+    actions: list[str] = []
+    length = len(clean_text(text))
+    if ext == ".hwp":
+        actions.append("구형 .hwp는 직접 파싱 정확도가 낮습니다. HWPX/DOCX/PDF로 변환하거나 원문 텍스트를 함께 붙여넣으세요.")
+    if ocr_status.get("status") == "needs_ocr":
+        actions.append("OCR이 필요합니다. Tesseract와 한국어 언어팩을 설치하고 TESSERACT_CMD/OCR_LANG을 설정하세요.")
+    if ext == ".pdf" and length < 300:
+        actions.append("PDF 텍스트가 짧습니다. 스캔 PDF라면 Poppler(pdftoppm)와 Tesseract OCR을 설치해 재분석하세요.")
+    if document_type == "existing_business_plan" and length < 1500:
+        actions.append("기존 사업계획서 원문이 짧게 추출됐습니다. 전체 원문을 텍스트로 붙여넣으면 사업 이해 모델 정확도가 높아집니다.")
+    if document_type in {"business_registration", "corporate_registry"} and not re.search(r"\d{3}-\d{2}-\d{5}|\d{6}-\d{7}", text):
+        actions.append("사업자등록번호/법인등록번호가 추출되지 않았습니다. 선명한 원본 또는 텍스트 보강이 필요합니다.")
+    if any("실패" in note or "failed" in note.lower() for note in notes):
+        actions.append("추출 실패 로그가 있습니다. 파일 손상 여부와 지원 형식을 확인하세요.")
+    if not actions:
+        actions.append("추출 상태가 양호합니다. 핵심 수치와 표가 정확히 읽혔는지만 최종 확인하세요.")
+    return actions[:5]
+
+
+def document_security_classification(filename: str, document_type: str, text: str) -> dict[str, Any]:
+    sensitive_hits: list[str] = []
+    if re.search(r"\b\d{3}-\d{2}-\d{5}\b", text):
+        sensitive_hits.append("사업자등록번호")
+    if re.search(r"\b\d{6}-\d{7}\b", text):
+        sensitive_hits.append("법인등록번호")
+    if re.search(r"\b\d{6}-[1-4]\d{6}\b", text):
+        sensitive_hits.append("주민등록번호 패턴")
+    if re.search(r"\b\d{2,4}-\d{3,4}-\d{4}\b", text):
+        sensitive_hits.append("연락처")
+    if document_type in {"business_registration", "corporate_registry", "finance"}:
+        sensitive_hits.append(document_type_label(document_type))
+    level = "restricted" if sensitive_hits else ("internal" if text.strip() else "unknown")
+    return {
+        "level": level,
+        "signals": sorted(set(sensitive_hits)),
+        "message": "민감정보가 포함될 수 있으므로 GitHub 업로드와 외부 API 전송 전 확인이 필요합니다." if sensitive_hits else "일반 내부 참고문서로 분류했습니다.",
+        "filename": filename,
     }
 
 
@@ -2083,6 +2260,7 @@ def document_insights_for_ai(document_insights: dict[str, Any]) -> dict[str, Any
         "companyPatch": document_insights.get("companyPatch") or {},
         "facts": document_insights.get("facts", [])[:30],
         "librarySummary": document_insights.get("librarySummary") or {},
+        "securityReport": document_insights.get("securityReport") or {},
         "documents": documents,
         "additionalNotes": document_insights.get("additionalNotes", ""),
     }
@@ -2107,9 +2285,16 @@ def analyze_documents(documents: list[dict[str, Any]], notes: str = "") -> dict[
     seen_signatures: dict[str, str] = {}
 
     for index, item in enumerate(documents, start=1):
-        filename = item.get("filename") or f"document-{index}.txt"
-        raw = base64.b64decode(item.get("contentBase64", "") or b"")
-        text, extraction_notes = extract_text(filename, raw, item.get("text", ""))
+        filename = item.get("filename") or item.get("name") or f"document-{index}.txt"
+        content = item.get("contentBase64") or item.get("content") or ""
+        raw = b""
+        if content:
+            try:
+                raw = base64.b64decode(content, validate=True)
+            except Exception:
+                raw = str(content).encode("utf-8", errors="ignore")
+        pasted = item.get("text") or item.get("pastedText") or ""
+        text, extraction_notes = extract_text(filename, raw, pasted)
         document_type = item.get("documentType") or infer_document_type(filename, text)
         facts, patch = extract_document_facts(text, document_type)
         company_patch = merge_patch(company_patch, patch)
@@ -2123,6 +2308,8 @@ def analyze_documents(documents: list[dict[str, Any]], notes: str = "") -> dict[
         coverage_tags = build_coverage_tags(text, facts, evidence_snippets, document_type)
         extraction_quality = document_extraction_quality(text, extraction_notes, ocr_status)
         extraction_completeness = document_extraction_completeness(filename, document_type, text, extraction_notes, ocr_status)
+        remediation_actions = document_remediation_actions(filename, document_type, text, extraction_notes, ocr_status)
+        security_classification = document_security_classification(filename, document_type, text)
         relevance_score = document_relevance_score(document_type, text, facts, evidence_snippets, coverage_tags)
         priority = document_priority(relevance_score, extraction_quality, duplicate_of)
         analyzed_docs.append(
@@ -2141,6 +2328,8 @@ def analyze_documents(documents: list[dict[str, Any]], notes: str = "") -> dict[
                 "ocrStatus": ocr_status,
                 "extractionQuality": extraction_quality,
                 "extractionCompleteness": extraction_completeness,
+                "remediationActions": remediation_actions,
+                "securityClassification": security_classification,
                 "relevanceScore": relevance_score,
                 "priority": priority,
                 "coverageTags": coverage_tags,
@@ -2172,6 +2361,7 @@ def analyze_documents(documents: list[dict[str, Any]], notes: str = "") -> dict[
         company_patch = merge_patch(company_patch, build_business_understanding_patch(business_understanding))
     business_plan_corpus = build_business_plan_corpus(analyzed_docs)
     library_summary = build_document_library_summary(analyzed_docs, unique_facts)
+    security_report = build_security_report(analyzed_docs)
     combined_text_parts = []
     understanding_text = business_understanding_summary_for_context(business_understanding)
     if understanding_text:
@@ -2208,6 +2398,7 @@ def analyze_documents(documents: list[dict[str, Any]], notes: str = "") -> dict[
         "facts": unique_facts,
         "companyPatch": company_patch,
         "librarySummary": library_summary,
+        "securityReport": security_report,
         "additionalNotes": notes.strip(),
         "combinedText": "\n\n".join(combined_text_parts)[:40000],
         "analyzedAt": dt.datetime.now().isoformat(timespec="seconds"),
@@ -2594,6 +2785,10 @@ def generate_plan(company: dict[str, Any], template: dict[str, Any], options: di
     proposal_scorecard = evaluate_proposal_strength(company, sections, document_insights, format_validation)
     quality = quality_checks(company, sections, document_insights, format_validation)
     visual_assets = build_visual_assets(company, sections, template_guidance, proposal_scorecard)
+    template_fill_manifest = build_template_fill_manifest(sections, template, template_guidance)
+    visual_placement_plan = build_visual_placement_plan(visual_assets, sections)
+    judge_review_pack = build_judge_review_pack(proposal_scorecard, document_insights, format_validation)
+    security_report = document_insights.get("securityReport") or build_security_report([])
     success_criteria = template.get("successCriteria") or match_success_criteria(grant_name, json.dumps(template, ensure_ascii=False))
     submission_format_manifest = build_submission_format_manifest(
         sections,
@@ -2616,6 +2811,27 @@ def generate_plan(company: dict[str, Any], template: dict[str, Any], options: di
             "message": f"{success_criteria.get('name', '일반 지원사업')} 유형의 선정 포인트와 탈락 리스크를 초안 검토 기준으로 연결했습니다.",
         }
     )
+    quality.append(
+        {
+            "label": "HWPX 양식 매핑",
+            "status": "ok" if template_fill_manifest.get("status") == "ok" else "needs_work",
+            "message": template_fill_manifest.get("message", ""),
+        }
+    )
+    quality.append(
+        {
+            "label": "심사위원 예상 질문",
+            "status": "ok" if judge_review_pack.get("status") == "ok" else "needs_work",
+            "message": f"예상 질문 {len(judge_review_pack.get('judgeQuestions', []))}개, 탈락 리스크 {len(judge_review_pack.get('rejectionRisks', []))}개를 생성했습니다.",
+        }
+    )
+    quality.append(
+        {
+            "label": "보안/개인정보 점검",
+            "status": "ok" if security_report.get("status") == "ok" else "needs_work",
+            "message": "; ".join(security_report.get("recommendedActions", [])[:2]),
+        }
+    )
     summary = build_summary(company, grant_name, document_insights, additional_notes, template_guidance)
     plan = {
         "title": f"{company_name} {grant_name} 사업계획서 초안",
@@ -2628,9 +2844,13 @@ def generate_plan(company: dict[str, Any], template: dict[str, Any], options: di
         "proposalScorecard": proposal_scorecard,
         "formatValidation": format_validation,
         "submissionFormatManifest": submission_format_manifest,
+        "templateFillManifest": template_fill_manifest,
         "templateSource": template.get("templateSource") or {"mode": "none", "preservable": False},
         "successCriteria": success_criteria,
         "visualAssets": visual_assets,
+        "visualPlacementPlan": visual_placement_plan,
+        "judgeReviewPack": judge_review_pack,
+        "securityReport": security_report,
         "templateGuidance": template_guidance,
         "documentInsights": document_insights,
         "businessUnderstanding": document_insights.get("businessUnderstanding") or {},
@@ -2638,6 +2858,7 @@ def generate_plan(company: dict[str, Any], template: dict[str, Any], options: di
         "aiEngine": build_ai_engine_report("local_fallback", "외부 AI API 키가 없어 로컬 생성기를 사용했습니다."),
         "generatedAt": dt.datetime.now().isoformat(timespec="seconds"),
     }
+    plan["workspaceManagement"] = build_workspace_management_report(options.get("profileId") or "default-workspace", document_insights, template, plan)
     if options.get("useAI", True):
         plan = enhance_plan_with_ai(plan, company, template, options)
     return attach_grounding_audit(plan, document_insights)
@@ -3886,6 +4107,66 @@ def build_submission_format_manifest(
     }
 
 
+def build_template_fill_manifest(sections: list[dict[str, Any]], template: dict[str, Any], guidance: dict[str, Any]) -> dict[str, Any]:
+    questions = template.get("questions") or []
+    rows: list[dict[str, Any]] = []
+    for index, section in enumerate(sections):
+        question = questions[index] if index < len(questions) else {}
+        prompt = question.get("prompt") or section.get("heading", "")
+        content = clean_text(section.get("content", ""))
+        rows.append(
+            {
+                "order": index + 1,
+                "sectionId": section.get("id", f"q{index + 1}"),
+                "templatePrompt": prompt,
+                "draftHeading": section.get("heading", ""),
+                "category": section.get("category", ""),
+                "targetPlacement": "원본 양식 동일 문항/표 셀" if questions else "생성 HWPX 순차 문항",
+                "answerCharacters": len(content),
+                "estimatedPages": round((len(content) + len(section.get("heading", ""))) / 1500, 1),
+                "formatRisk": "ok" if content and len(content) >= 80 else "needs_work",
+                "answerPreview": content[:420],
+            }
+        )
+    exact_fill_ready = bool(questions) and len(questions) == len(sections)
+    return {
+        "mode": "question_level_mapping",
+        "exactCellFillReady": exact_fill_ready,
+        "sourceFormat": (template.get("templateSource") or {}).get("extension", ""),
+        "questionCount": len(questions),
+        "sectionCount": len(sections),
+        "strictFormat": bool(guidance.get("strictFormat")),
+        "status": "ok" if exact_fill_ready else "needs_work",
+        "message": "원본 양식 문항 수와 초안 섹션 수가 일치해 문항 단위 매핑이 가능합니다." if exact_fill_ready else "문항 수가 다르거나 원본 문항이 부족해 수동 확인이 필요합니다.",
+        "rows": rows,
+    }
+
+
+def build_visual_placement_plan(visual_assets: dict[str, Any], sections: list[dict[str, Any]]) -> dict[str, Any]:
+    section_labels = [section.get("heading", "") for section in sections]
+    placements: list[dict[str, Any]] = []
+    for kind in ["tables", "infographics", "imageBriefs"]:
+        for asset in visual_assets.get(kind, []) or []:
+            placement = asset.get("placement", "")
+            target_section = next((heading for heading in section_labels if heading and any(token in placement for token in support_tokens(heading))), "")
+            placements.append(
+                {
+                    "assetType": kind,
+                    "id": asset.get("id", ""),
+                    "title": asset.get("title", ""),
+                    "placement": placement,
+                    "targetSection": target_section or "본문 흐름에 맞춰 수동 확인",
+                    "readyForHwpx": kind != "imageBriefs",
+                    "note": "표/인포그래픽은 HWPX 본문에 텍스트 구조로 배치하고, 이미지 브리프는 이미지 생성 후 삽입 대상으로 관리합니다.",
+                }
+            )
+    return {
+        "status": "ok" if placements else "needs_work",
+        "assetCount": len(placements),
+        "placements": placements,
+    }
+
+
 def label_for_field(field: str) -> str:
     labels = {
         "business.oneLine": "한 줄 소개",
@@ -4334,6 +4615,34 @@ def evaluate_proposal_strength(
     }
 
 
+def build_judge_review_pack(scorecard: dict[str, Any], document_insights: dict[str, Any], format_validation: list[dict[str, str]]) -> dict[str, Any]:
+    weak_items = [item for item in scorecard.get("items", []) if item.get("status") != "strong"]
+    validation_gaps = [item for item in format_validation if item.get("status") != "ok"]
+    evidence_count = len(((document_insights or {}).get("businessUnderstanding") or {}).get("evidenceBank", []) or [])
+    questions: list[str] = []
+    risks: list[str] = []
+    actions: list[str] = []
+    for item in weak_items[:6]:
+        label = item.get("label", "평가항목")
+        questions.append(f"{label}에서 실제 고객·시장·실행 근거가 무엇인지 구체적으로 설명할 수 있는가?")
+        risks.append(f"{label} 보강이 부족하면 심사위원이 실행 가능성과 차별성을 낮게 볼 수 있습니다.")
+        actions.append(item.get("action", "해당 항목의 수치 근거와 증빙자료를 보강하세요."))
+    for gap in validation_gaps[:4]:
+        questions.append(f"제출 형식 '{gap.get('label', '')}'을 실제 양식 기준으로 준수했는가?")
+        risks.append(f"형식 리스크: {gap.get('message', '')}")
+    if evidence_count < 8:
+        questions.append("업로드 문서에서 확인되는 정량 근거가 충분한가?")
+        risks.append("근거은행이 부족하면 AI가 일반론으로 작성할 위험이 있습니다.")
+        actions.append("기존 사업계획서, 파일럿 결과, 견적서, LOI, 인터뷰 원문을 추가 업로드하세요.")
+    return {
+        "status": "ok" if not weak_items and not validation_gaps and evidence_count >= 8 else "needs_work",
+        "judgeQuestions": questions[:10],
+        "rejectionRisks": risks[:10],
+        "priorityActions": actions[:10] or scorecard.get("priorityActions", []),
+        "evidenceBankCount": evidence_count,
+    }
+
+
 def build_summary(
     company: dict[str, Any],
     grant_name: str,
@@ -4429,6 +4738,27 @@ def plan_to_paragraphs(plan: dict[str, Any]) -> list[tuple[str, str]]:
             manifest_lines.append(f"- {checklist}")
         paragraphs.append(("heading", "제출 양식 준수 매니페스트"))
         paragraphs.append(("note", "\n".join(manifest_lines)))
+    template_fill = plan.get("templateFillManifest") or {}
+    if template_fill:
+        rows = [
+            f"{row.get('order')}. {row.get('templatePrompt')} -> {row.get('targetPlacement')} / {row.get('answerCharacters')}자"
+            for row in template_fill.get("rows", [])[:20]
+        ]
+        paragraphs.append(("heading", "HWPX 양식 기입 매핑"))
+        paragraphs.append(("note", f"{template_fill.get('message', '')}\n" + "\n".join(rows)))
+    judge_pack = plan.get("judgeReviewPack") or {}
+    if judge_pack:
+        lines = ["[예상 질문]"] + [f"- {item}" for item in judge_pack.get("judgeQuestions", [])]
+        lines += ["", "[탈락 리스크]"] + [f"- {item}" for item in judge_pack.get("rejectionRisks", [])]
+        lines += ["", "[우선 보완]"] + [f"- {item}" for item in judge_pack.get("priorityActions", [])]
+        paragraphs.append(("heading", "심사위원 예상 질문·탈락 리스크"))
+        paragraphs.append(("note", "\n".join(lines)))
+    security_report = plan.get("securityReport") or {}
+    if security_report:
+        lines = [f"상태: {security_report.get('status', '')}", f"민감문서: {security_report.get('restrictedDocumentCount', 0)}건"]
+        lines.extend(f"- {item}" for item in security_report.get("recommendedActions", []))
+        paragraphs.append(("heading", "보안·개인정보 점검"))
+        paragraphs.append(("note", "\n".join(lines)))
     paragraphs.extend(visual_assets_to_paragraphs(plan.get("visualAssets") or {}))
     for index, section in enumerate(plan.get("sections", []), start=1):
         paragraphs.append(("heading", f"{index}. {section.get('heading', '')}"))
@@ -4558,6 +4888,27 @@ def create_html_export(plan: dict[str, Any], output_path: Path) -> None:
     if visual_html:
         body_parts.append("<h2>표·인포그래픽 배치 설계</h2>")
         body_parts.append(visual_html)
+    template_fill = plan.get("templateFillManifest") or {}
+    if template_fill:
+        body_parts.append("<h2>HWPX 양식 기입 매핑</h2>")
+        rows = [
+            f"{row.get('order')}. {row.get('templatePrompt')} -> {row.get('targetPlacement')} / {row.get('answerCharacters')}자"
+            for row in template_fill.get("rows", [])[:20]
+        ]
+        body_parts.append(f"<p class='note'>{html.escape(template_fill.get('message',''))}\n{html.escape(chr(10).join(rows))}</p>")
+    judge_pack = plan.get("judgeReviewPack") or {}
+    if judge_pack:
+        body_parts.append("<h2>심사위원 예상 질문·탈락 리스크</h2>")
+        lines = ["[예상 질문]"] + [f"- {item}" for item in judge_pack.get("judgeQuestions", [])]
+        lines += ["", "[탈락 리스크]"] + [f"- {item}" for item in judge_pack.get("rejectionRisks", [])]
+        lines += ["", "[우선 보완]"] + [f"- {item}" for item in judge_pack.get("priorityActions", [])]
+        body_parts.append(f"<p class='note'>{html.escape(chr(10).join(lines))}</p>")
+    security_report = plan.get("securityReport") or {}
+    if security_report:
+        body_parts.append("<h2>보안·개인정보 점검</h2>")
+        lines = [f"상태: {security_report.get('status', '')}", f"민감문서: {security_report.get('restrictedDocumentCount', 0)}건"]
+        lines.extend(f"- {item}" for item in security_report.get("recommendedActions", []))
+        body_parts.append(f"<p class='note'>{html.escape(chr(10).join(lines))}</p>")
     for i, section in enumerate(plan.get("sections", []), start=1):
         body_parts.append(f"<h2>{i}. {html.escape(section.get('heading',''))}</h2>")
         body_parts.append(f"<p>{html.escape(section.get('content',''))}</p>")
@@ -4709,6 +5060,10 @@ def create_template_preservation_files(plan: dict[str, Any], base: str, generate
         "limitation": "1차 구현은 원본 양식을 변형하지 않고 보존하며, 생성 답변과 문항 매핑을 함께 제공합니다. 표 셀 단위 자동 삽입은 HWPX XML 구조별 추가 구현이 필요합니다.",
         "templateSource": source,
         "generatedHwpx": generated_hwpx_path.name,
+        "templateFillManifest": plan.get("templateFillManifest") or {},
+        "visualPlacementPlan": plan.get("visualPlacementPlan") or {},
+        "judgeReviewPack": plan.get("judgeReviewPack") or {},
+        "securityReport": plan.get("securityReport") or {},
         "answerMap": [
             {
                 "sectionId": section.get("id", ""),
