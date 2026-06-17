@@ -127,6 +127,14 @@ Acceptance criteria:
 
 - `tools/quality_smoke.py` provides a repeatable local regression test for document analysis, draft generation, revision, export, and HWPX package structure.
 - Claude Opus 4.8 API ID is standardized to Anthropic's actual ID: `claude-opus-4-8`.
+- Submission fidelity reporting now analyzes uploaded HWPX packages and exports a fidelity JSON report.
+- Export now creates deterministic SVG files for tables and infographics.
+- Drafts now include evidence-lock, consultant-review, estimated AI-cost, and secure-transfer policy reports.
+- `/api/ai/health` reports configured AI provider/model readiness, with optional live checks through `?live=1`.
+
+## Remaining Advanced Work
+
+The current HWPX fill engine creates a review-grade filled-template attempt when a source HWPX is available. True production-grade government-form filling still requires per-template table/cell anchoring, style-preserving insertion, and Hancom Office visual QA for each form family.
 
 Run:
 

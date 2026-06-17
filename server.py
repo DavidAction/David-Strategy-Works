@@ -349,6 +349,14 @@ def content_disposition_attachment(filename: str) -> str:
     return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded_name}"
 
 
+def local_xml_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1].split(":", 1)[-1]
+
+
+def export_link(label: str, path: Path) -> dict[str, str]:
+    return {"label": label, "url": export_file_url(path.name), "filename": path.name}
+
+
 def store_template_source(filename: str, data: bytes, pasted_text: str = "") -> dict[str, Any]:
     ensure_dirs()
     ext = Path(filename or "").suffix.lower()
@@ -885,12 +893,69 @@ def provider_status() -> dict[str, Any]:
     }
 
 
+def ai_provider_health(live: bool = False) -> dict[str, Any]:
+    providers = provider_status()
+    checks: list[dict[str, Any]] = []
+    model_map = {
+        "google": AI_MODEL_ASSIGNMENTS["primaryDraft"]["model"],
+        "openai": AI_MODEL_ASSIGNMENTS["finalPolish"]["model"],
+        "anthropic": AI_MODEL_ASSIGNMENTS["strategicRedTeam"]["model"],
+    }
+    for provider, status in providers.items():
+        check = {
+            "provider": provider,
+            "configured": bool(status.get("configured")),
+            "env": status.get("env", ""),
+            "model": model_map.get(provider, ""),
+            "liveChecked": False,
+            "status": "configured_unverified" if status.get("configured") else "not_configured",
+            "message": "API key is configured but live check was not requested." if status.get("configured") else "API key is not configured.",
+        }
+        if live and status.get("configured"):
+            try:
+                if provider == "google":
+                    gemini_generate_content(model_map[provider], "Return {\"ok\": true} as JSON.", timeout=20)
+                elif provider == "openai":
+                    openai_responses_create(
+                        {
+                            "model": model_map[provider],
+                            "store": False,
+                            "input": [{"role": "user", "content": [{"type": "input_text", "text": "Return ok."}]}],
+                            "max_output_tokens": 64,
+                        },
+                        timeout=20,
+                    )
+                elif provider == "anthropic":
+                    anthropic_messages_create(
+                        {
+                            "model": model_map[provider],
+                            "max_tokens": 64,
+                            "messages": [{"role": "user", "content": "Return ok."}],
+                        },
+                        timeout=20,
+                    )
+                check["status"] = "ok"
+                check["message"] = "Live API check succeeded."
+            except Exception as exc:
+                check["status"] = "error"
+                check["message"] = str(exc)[:500]
+            check["liveChecked"] = True
+        checks.append(check)
+    return {
+        "status": "ok" if all(item["status"] in {"ok", "configured_unverified", "not_configured"} for item in checks) else "needs_work",
+        "live": live,
+        "checks": checks,
+        "checkedAt": dt.datetime.now().isoformat(timespec="seconds"),
+    }
+
+
 def ai_settings_payload() -> dict[str, Any]:
     providers = provider_status()
     return {
         "configured": any(item["configured"] for item in providers.values()),
         "apiKeyEnv": "OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY",
         "providers": providers,
+        "health": ai_provider_health(False),
         "assignments": json.loads(json.dumps(AI_MODEL_ASSIGNMENTS, ensure_ascii=False)),
         "recommendation": (
             "역할별 최적 배치로 설정했습니다. 한글 보고서 1차 초안은 Gemini 3.5 Flash, "
@@ -2796,6 +2861,7 @@ def generate_plan(company: dict[str, Any], template: dict[str, Any], options: di
     quality = quality_checks(company, sections, document_insights, format_validation)
     visual_assets = build_visual_assets(company, sections, template_guidance, proposal_scorecard)
     template_fill_manifest = build_template_fill_manifest(sections, template, template_guidance)
+    submission_fidelity_report = build_submission_fidelity_report(template, sections, template_fill_manifest)
     visual_placement_plan = build_visual_placement_plan(visual_assets, sections)
     judge_review_pack = build_judge_review_pack(proposal_scorecard, document_insights, format_validation)
     security_report = document_insights.get("securityReport") or build_security_report([])
@@ -2824,8 +2890,8 @@ def generate_plan(company: dict[str, Any], template: dict[str, Any], options: di
     quality.append(
         {
             "label": "HWPX 양식 매핑",
-            "status": "ok" if template_fill_manifest.get("status") == "ok" else "needs_work",
-            "message": template_fill_manifest.get("message", ""),
+            "status": "ok" if template_fill_manifest.get("status") == "ok" and submission_fidelity_report.get("status") in {"ok", "needs_review"} else "needs_work",
+            "message": f"{template_fill_manifest.get('message', '')} {submission_fidelity_report.get('nextAction', '')}".strip(),
         }
     )
     quality.append(
@@ -2855,6 +2921,7 @@ def generate_plan(company: dict[str, Any], template: dict[str, Any], options: di
         "formatValidation": format_validation,
         "submissionFormatManifest": submission_format_manifest,
         "templateFillManifest": template_fill_manifest,
+        "submissionFidelityReport": submission_fidelity_report,
         "templateSource": template.get("templateSource") or {"mode": "none", "preservable": False},
         "successCriteria": success_criteria,
         "visualAssets": visual_assets,
@@ -3738,13 +3805,209 @@ def audit_unsupported_claims(sections: list[dict[str, Any]], document_insights: 
     }
 
 
+def build_evidence_lock_report(traceability: dict[str, Any], unsupported: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
+    blocked_sections = [
+        section
+        for section in traceability.get("sections", [])
+        if section.get("status") in {"needs_grounding", "no_source"} or section.get("supportScore", 0) < 20
+    ]
+    high_claims = [claim for claim in unsupported.get("claims", []) if claim.get("severity") == "high"]
+    assumptions: list[dict[str, str]] = []
+    for section in blocked_sections[:8]:
+        assumptions.append(
+            {
+                "sectionId": section.get("sectionId", ""),
+                "heading": section.get("heading", ""),
+                "requiredAction": "업로드 문서 근거, 고객 인터뷰, LOI, 견적서, 매출 가정표 중 하나를 연결하세요.",
+            }
+        )
+    for claim in high_claims[:8]:
+        assumptions.append(
+            {
+                "sectionId": claim.get("sectionId", ""),
+                "heading": claim.get("heading", ""),
+                "requiredAction": f"수치 주장 근거 확인 필요: {claim.get('claim', '')[:140]}",
+            }
+        )
+    status = "locked" if not blocked_sections and not high_claims else "needs_evidence"
+    return {
+        "status": status,
+        "exportGate": "pass" if status == "locked" else "review_required",
+        "groundedSections": traceability.get("groundedSections", 0),
+        "partialSections": traceability.get("partialSections", 0),
+        "needsGroundingSections": len(blocked_sections),
+        "highRiskClaims": len(high_claims),
+        "assumptionCount": len(assumptions),
+        "assumptions": assumptions[:12],
+        "message": (
+            "핵심 문항과 수치 주장이 업로드 근거에 잠금 처리됐습니다."
+            if status == "locked"
+            else "근거 잠금 전 보완이 필요한 문항 또는 수치 주장이 있습니다."
+        ),
+    }
+
+
+def build_consultant_review(plan: dict[str, Any], traceability: dict[str, Any], unsupported: dict[str, Any], evidence_lock: dict[str, Any]) -> dict[str, Any]:
+    scorecard = plan.get("proposalScorecard") or {}
+    format_validation = plan.get("formatValidation") or []
+    security_report = plan.get("securityReport") or {}
+    weak_score_items = [item for item in scorecard.get("items", []) if item.get("status") != "strong"]
+    format_gaps = [item for item in format_validation if item.get("status") != "ok"]
+    fixes: list[dict[str, Any]] = []
+    for item in weak_score_items[:6]:
+        fixes.append(
+            {
+                "priority": len(fixes) + 1,
+                "area": item.get("label", "평가항목"),
+                "impact": "selection",
+                "action": item.get("action", "심사 기준에 맞는 근거와 실행 계획을 보강하세요."),
+            }
+        )
+    for section in (traceability.get("sections") or []):
+        if section.get("status") in {"needs_grounding", "no_source"}:
+            fixes.append(
+                {
+                    "priority": len(fixes) + 1,
+                    "area": section.get("heading", "근거 부족 문항"),
+                    "impact": "evidence",
+                    "action": "본문 주장과 직접 연결되는 업로드 문서 근거를 추가하거나 문장을 보수적으로 조정하세요.",
+                }
+            )
+    for gap in format_gaps[:4]:
+        fixes.append(
+            {
+                "priority": len(fixes) + 1,
+                "area": gap.get("label", "제출 형식"),
+                "impact": "format",
+                "action": gap.get("message", "제출 형식을 확인하세요."),
+            }
+        )
+    if security_report.get("status") != "ok":
+        fixes.append(
+            {
+                "priority": len(fixes) + 1,
+                "area": "보안/개인정보",
+                "impact": "operation",
+                "action": "민감문서 외부 API 전송 여부를 확인하고 공개 저장소에는 data/와 exports/를 올리지 마세요.",
+            }
+        )
+    readiness = int(scorecard.get("score") or 0)
+    if evidence_lock.get("status") != "locked":
+        readiness = max(0, readiness - 8)
+    if unsupported.get("highRiskClaims"):
+        readiness = max(0, readiness - 10)
+    if format_gaps:
+        readiness = max(0, readiness - min(12, len(format_gaps) * 3))
+    decision = "ready_with_minor_review" if readiness >= 85 and not fixes[:2] else ("revise_before_submission" if readiness >= 70 else "major_revision_required")
+    return {
+        "status": "ok" if decision == "ready_with_minor_review" else "needs_work",
+        "readinessScore": readiness,
+        "decision": decision,
+        "topFixes": fixes[:10],
+        "sectionComments": [
+            {
+                "sectionId": section.get("sectionId", ""),
+                "heading": section.get("heading", ""),
+                "comment": "근거 연결이 충분합니다." if section.get("status") == "grounded" else "문장 앞부분에 출처 기반 수치 또는 고객 근거를 보강하세요.",
+            }
+            for section in (traceability.get("sections") or [])[:12]
+        ],
+        "finalChecklist": [
+            "원본 양식 문항 순서와 제목을 보존했는가",
+            "수치 주장은 업로드 문서 또는 명시적 가정과 연결됐는가",
+            "예산 항목은 산출물/KPI와 직접 연결됐는가",
+            "심사위원 예상 질문에 본문이 먼저 답하고 있는가",
+            "민감문서와 API 전송 정책을 확인했는가",
+        ],
+    }
+
+
+def parse_price_per_mtok(value_text: str) -> float:
+    try:
+        return float(str(value_text).replace("$", "").replace(",", "").strip())
+    except ValueError:
+        return 0.0
+
+
+def model_price_lookup() -> dict[str, tuple[float, float]]:
+    prices: dict[str, tuple[float, float]] = {}
+    for item in AI_MODEL_ASSIGNMENTS.get("comparisonMatrix", []):
+        model = item.get("model", "")
+        prices[model] = (parse_price_per_mtok(item.get("inputPerMTok", "0")), parse_price_per_mtok(item.get("outputPerMTok", "0")))
+    return prices
+
+
+def estimate_tokens(text: str) -> int:
+    return max(1, round(len(clean_text(text)) / 2.4))
+
+
+def build_ai_cost_ledger(plan: dict[str, Any]) -> dict[str, Any]:
+    sections_text = "\n".join(section.get("content", "") for section in plan.get("sections", []))
+    context_tokens = estimate_tokens(json.dumps(plan.get("documentInsights") or {}, ensure_ascii=False)[:50000])
+    draft_tokens = estimate_tokens(sections_text)
+    prices = model_price_lookup()
+    stages = [
+        ("문서 분석", AI_MODEL_ASSIGNMENTS["documentAnalysis"]["model"], context_tokens, max(500, context_tokens // 5)),
+        ("한글 초안", AI_MODEL_ASSIGNMENTS["primaryDraft"]["model"], context_tokens + draft_tokens, draft_tokens),
+        ("제출 문장 정제", AI_MODEL_ASSIGNMENTS["finalPolish"]["model"], draft_tokens + 3000, draft_tokens),
+        ("최종 심사 리뷰", AI_MODEL_ASSIGNMENTS["strategicRedTeam"]["model"], draft_tokens + 3000, 1200),
+    ]
+    rows = []
+    total = 0.0
+    for stage, model, input_tokens, output_tokens in stages:
+        input_price, output_price = prices.get(model, (0.0, 0.0))
+        estimated_cost = (input_tokens / 1_000_000 * input_price) + (output_tokens / 1_000_000 * output_price)
+        total += estimated_cost
+        rows.append(
+            {
+                "stage": stage,
+                "model": model,
+                "estimatedInputTokens": input_tokens,
+                "estimatedOutputTokens": output_tokens,
+                "estimatedUsd": round(estimated_cost, 4),
+            }
+        )
+    return {
+        "status": "estimated",
+        "currency": "USD",
+        "estimatedTotalUsd": round(total, 4),
+        "rows": rows,
+        "note": "실제 과금은 공급사 토큰 계산, 캐시, 이미지 생성 여부, 재시도 횟수에 따라 달라질 수 있습니다.",
+    }
+
+
+def build_secure_transfer_policy(plan: dict[str, Any]) -> dict[str, Any]:
+    security_report = plan.get("securityReport") or {}
+    ai_engine = plan.get("aiEngine") or {}
+    restricted_count = int(security_report.get("restrictedDocumentCount") or 0)
+    api_ready = bool(ai_engine.get("apiKeyConfigured"))
+    requires_confirmation = restricted_count > 0 and api_ready
+    return {
+        "status": "confirmation_required" if requires_confirmation else "ok",
+        "restrictedDocumentCount": restricted_count,
+        "externalApiConfigured": api_ready,
+        "requiresUserConfirmationBeforeAiTransfer": requires_confirmation,
+        "policy": [
+            "사업자등록증, 등기부등본, 재무자료, 계약서, LOI는 외부 AI 전송 전 확인 대상입니다.",
+            "공개 GitHub에는 data/, exports/, .env를 올리지 않습니다.",
+            "외주 전달 시 실제 문서 대신 샘플 또는 마스킹 문서를 우선 사용합니다.",
+            "제출 완료 후 불필요한 export 파일은 별도 보관 또는 삭제합니다.",
+        ],
+    }
+
+
 def attach_grounding_audit(plan: dict[str, Any], document_insights: dict[str, Any] | None) -> dict[str, Any]:
     output = json.loads(json.dumps(plan, ensure_ascii=False))
     sections = output.get("sections") or []
     traceability = build_evidence_traceability(sections, document_insights)
     unsupported = audit_unsupported_claims(sections, document_insights)
+    evidence_lock = build_evidence_lock_report(traceability, unsupported, output)
     output["evidenceTraceability"] = traceability
     output["unsupportedClaimAudit"] = unsupported
+    output["evidenceLockReport"] = evidence_lock
+    output["consultantReview"] = build_consultant_review(output, traceability, unsupported, evidence_lock)
+    output["aiCostLedger"] = build_ai_cost_ledger(output)
+    output["secureTransferPolicy"] = build_secure_transfer_policy(output)
     quality = [
         item
         for item in output.get("qualityChecks", [])
@@ -3770,6 +4033,20 @@ def attach_grounding_audit(plan: dict[str, Any], document_insights: dict[str, An
                 if unsupported.get("status") == "ok"
                 else f"고위험 {unsupported.get('highRiskClaims', 0)}건, 주의 {unsupported.get('mediumRiskClaims', 0)}건을 확인하세요."
             ),
+        }
+    )
+    quality.append(
+        {
+            "label": "근거 잠금 게이트",
+            "status": "ok" if evidence_lock.get("status") == "locked" else "needs_work",
+            "message": evidence_lock.get("message", ""),
+        }
+    )
+    quality.append(
+        {
+            "label": "컨설턴트 최종 리뷰",
+            "status": "ok" if output["consultantReview"].get("status") == "ok" else "needs_work",
+            "message": f"제출 준비도 {output['consultantReview'].get('readinessScore', 0)}점 / 우선 보완 {len(output['consultantReview'].get('topFixes', []))}건",
         }
     )
     output["qualityChecks"] = quality
@@ -4149,6 +4426,107 @@ def build_template_fill_manifest(sections: list[dict[str, Any]], template: dict[
         "status": "ok" if exact_fill_ready else "needs_work",
         "message": "원본 양식 문항 수와 초안 섹션 수가 일치해 문항 단위 매핑이 가능합니다." if exact_fill_ready else "문항 수가 다르거나 원본 문항이 부족해 수동 확인이 필요합니다.",
         "rows": rows,
+    }
+
+
+def analyze_hwpx_template_file(source: dict[str, Any]) -> dict[str, Any]:
+    stored_name = source.get("storedName", "")
+    if not stored_name or source.get("extension") != ".hwpx":
+        return {
+            "available": False,
+            "status": "not_hwpx",
+            "message": "원본 제출양식이 HWPX가 아니어서 표/셀 단위 분석을 건너뜁니다.",
+        }
+    source_path = (TEMPLATE_DIR / stored_name).resolve()
+    template_root = TEMPLATE_DIR.resolve()
+    if template_root != source_path and template_root not in source_path.parents:
+        return {"available": False, "status": "blocked", "message": "템플릿 경로가 안전 범위를 벗어났습니다."}
+    if not source_path.exists():
+        return {"available": False, "status": "missing", "message": "저장된 원본 HWPX 양식을 찾을 수 없습니다."}
+
+    section_files: list[str] = []
+    table_count = 0
+    cell_count = 0
+    paragraph_count = 0
+    text_nodes: list[str] = []
+    try:
+        with zipfile.ZipFile(source_path) as archive:
+            for name in archive.namelist():
+                if not name.lower().endswith(".xml"):
+                    continue
+                if not (name.startswith("Contents/section") or name.startswith("Contents/")):
+                    continue
+                if "section" in name.lower():
+                    section_files.append(name)
+                try:
+                    xml = archive.read(name)
+                    root = ET.fromstring(xml)
+                except Exception:
+                    continue
+                for element in root.iter():
+                    lname = local_xml_name(element.tag).lower()
+                    if lname in {"tbl", "table"}:
+                        table_count += 1
+                    elif lname in {"tc", "cell"}:
+                        cell_count += 1
+                    elif lname == "p":
+                        paragraph_count += 1
+                    elif lname in {"t", "text"} and element.text and element.text.strip():
+                        text_nodes.append(clean_text(element.text))
+    except Exception as exc:
+        return {"available": False, "status": "error", "message": f"HWPX 분석 실패: {exc}"}
+
+    sample_text = " ".join(text_nodes[:120])
+    placeholder_count = len(re.findall(r"\[[^\]]{1,40}\]|\{[^}]{1,40}\}|_{3,}", sample_text))
+    fill_mode = "cell_level_candidate" if cell_count else ("paragraph_level_candidate" if paragraph_count else "appendix_only")
+    return {
+        "available": True,
+        "status": "ok" if section_files else "needs_review",
+        "fillMode": fill_mode,
+        "sectionXmlCount": len(section_files),
+        "tableCount": table_count,
+        "cellCount": cell_count,
+        "paragraphCount": paragraph_count,
+        "textNodeCount": len(text_nodes),
+        "placeholderCount": placeholder_count,
+        "sampleText": sample_text[:1200],
+        "message": (
+            f"원본 HWPX에서 섹션 XML {len(section_files)}개, 표 {table_count}개, 셀 {cell_count}개를 감지했습니다."
+            if section_files
+            else "HWPX 패키지에서 본문 섹션 XML을 명확히 찾지 못했습니다."
+        ),
+    }
+
+
+def build_submission_fidelity_report(template: dict[str, Any], sections: list[dict[str, Any]], fill_manifest: dict[str, Any]) -> dict[str, Any]:
+    source = template.get("templateSource") or {}
+    hwpx = analyze_hwpx_template_file(source)
+    rows = fill_manifest.get("rows") or []
+    risk_items: list[str] = []
+    if not hwpx.get("available"):
+        risk_items.append(hwpx.get("message", "원본 HWPX 양식 분석이 필요합니다."))
+    if rows and len(rows) != len(sections):
+        risk_items.append("문항 매핑 수와 생성 섹션 수가 달라 수동 확인이 필요합니다.")
+    if hwpx.get("available") and not hwpx.get("cellCount"):
+        risk_items.append("원본 양식에서 표 셀을 감지하지 못해 문단 단위 삽입 또는 부록 삽입으로 처리합니다.")
+    exact_ready = bool(hwpx.get("available")) and bool(hwpx.get("cellCount")) and bool(fill_manifest.get("rows"))
+    return {
+        "status": "ok" if exact_ready and not risk_items else "needs_review",
+        "exactFillCandidate": exact_ready,
+        "templateSource": {
+            "filename": source.get("filename", ""),
+            "storedName": source.get("storedName", ""),
+            "extension": source.get("extension", ""),
+        },
+        "hwpxAnalysis": hwpx,
+        "mappedAnswerCount": len(rows),
+        "generatedSectionCount": len(sections),
+        "riskItems": risk_items,
+        "nextAction": (
+            "원본 HWPX 표/셀 구조가 감지됐습니다. export 시 검토용 원본 삽입본과 매핑 JSON을 함께 생성합니다."
+            if exact_ready
+            else "원본 HWPX 양식 또는 문항 매핑을 확인한 뒤 셀 단위 자동 기입을 검증하세요."
+        ),
     }
 
 
@@ -4769,6 +5147,50 @@ def plan_to_paragraphs(plan: dict[str, Any]) -> list[tuple[str, str]]:
         lines.extend(f"- {item}" for item in security_report.get("recommendedActions", []))
         paragraphs.append(("heading", "보안·개인정보 점검"))
         paragraphs.append(("note", "\n".join(lines)))
+    fidelity = plan.get("submissionFidelityReport") or {}
+    if fidelity:
+        hwpx = fidelity.get("hwpxAnalysis") or {}
+        lines = [
+            f"상태: {fidelity.get('status', '')}",
+            f"원본 HWPX 섹션/표/셀: {hwpx.get('sectionXmlCount', 0)} / {hwpx.get('tableCount', 0)} / {hwpx.get('cellCount', 0)}",
+            f"매핑 답변: {fidelity.get('mappedAnswerCount', 0)}개",
+            fidelity.get("nextAction", ""),
+        ]
+        lines.extend(f"- {item}" for item in fidelity.get("riskItems", []))
+        paragraphs.append(("heading", "제출 양식 충실도 엔진"))
+        paragraphs.append(("note", "\n".join(line for line in lines if line)))
+    evidence_lock = plan.get("evidenceLockReport") or {}
+    if evidence_lock:
+        lines = [
+            f"상태: {evidence_lock.get('status', '')}",
+            f"Export gate: {evidence_lock.get('exportGate', '')}",
+            f"근거 보완 필요 문항: {evidence_lock.get('needsGroundingSections', 0)}개",
+            f"고위험 수치 주장: {evidence_lock.get('highRiskClaims', 0)}개",
+        ]
+        lines.extend(f"- {item.get('heading', '')}: {item.get('requiredAction', '')}" for item in evidence_lock.get("assumptions", [])[:8])
+        paragraphs.append(("heading", "근거 잠금 리포트"))
+        paragraphs.append(("note", "\n".join(lines)))
+    consultant = plan.get("consultantReview") or {}
+    if consultant:
+        lines = [f"제출 준비도: {consultant.get('readinessScore', 0)}점", f"판정: {consultant.get('decision', '')}"]
+        lines.extend(f"{item.get('priority')}. {item.get('area')}: {item.get('action')}" for item in consultant.get("topFixes", [])[:10])
+        paragraphs.append(("heading", "컨설턴트 최종 리뷰"))
+        paragraphs.append(("note", "\n".join(lines)))
+    cost_ledger = plan.get("aiCostLedger") or {}
+    if cost_ledger:
+        lines = [f"예상 총액: ${cost_ledger.get('estimatedTotalUsd', 0)} {cost_ledger.get('currency', 'USD')}"]
+        lines.extend(f"- {row.get('stage')}: {row.get('model')} / ${row.get('estimatedUsd')}" for row in cost_ledger.get("rows", []))
+        paragraphs.append(("heading", "AI 비용 추정 원장"))
+        paragraphs.append(("note", "\n".join(lines)))
+    transfer = plan.get("secureTransferPolicy") or {}
+    if transfer:
+        lines = [
+            f"상태: {transfer.get('status', '')}",
+            f"외부 API 전송 확인 필요: {transfer.get('requiresUserConfirmationBeforeAiTransfer', False)}",
+        ]
+        lines.extend(f"- {item}" for item in transfer.get("policy", []))
+        paragraphs.append(("heading", "민감문서 전송 정책"))
+        paragraphs.append(("note", "\n".join(lines)))
     paragraphs.extend(visual_assets_to_paragraphs(plan.get("visualAssets") or {}))
     for index, section in enumerate(plan.get("sections", []), start=1):
         paragraphs.append(("heading", f"{index}. {section.get('heading', '')}"))
@@ -4919,6 +5341,50 @@ def create_html_export(plan: dict[str, Any], output_path: Path) -> None:
         lines = [f"상태: {security_report.get('status', '')}", f"민감문서: {security_report.get('restrictedDocumentCount', 0)}건"]
         lines.extend(f"- {item}" for item in security_report.get("recommendedActions", []))
         body_parts.append(f"<p class='note'>{html.escape(chr(10).join(lines))}</p>")
+    fidelity = plan.get("submissionFidelityReport") or {}
+    if fidelity:
+        body_parts.append("<h2>제출 양식 충실도 엔진</h2>")
+        hwpx = fidelity.get("hwpxAnalysis") or {}
+        lines = [
+            f"상태: {fidelity.get('status', '')}",
+            f"원본 HWPX 섹션/표/셀: {hwpx.get('sectionXmlCount', 0)} / {hwpx.get('tableCount', 0)} / {hwpx.get('cellCount', 0)}",
+            f"매핑 답변: {fidelity.get('mappedAnswerCount', 0)}개",
+            fidelity.get("nextAction", ""),
+        ]
+        lines.extend(f"- {item}" for item in fidelity.get("riskItems", []))
+        body_parts.append(f"<p class='note'>{html.escape(chr(10).join(line for line in lines if line))}</p>")
+    evidence_lock = plan.get("evidenceLockReport") or {}
+    if evidence_lock:
+        body_parts.append("<h2>근거 잠금 리포트</h2>")
+        lines = [
+            f"상태: {evidence_lock.get('status', '')}",
+            f"Export gate: {evidence_lock.get('exportGate', '')}",
+            f"근거 보완 필요 문항: {evidence_lock.get('needsGroundingSections', 0)}개",
+            f"고위험 수치 주장: {evidence_lock.get('highRiskClaims', 0)}개",
+        ]
+        lines.extend(f"- {item.get('heading', '')}: {item.get('requiredAction', '')}" for item in evidence_lock.get("assumptions", [])[:8])
+        body_parts.append(f"<p class='note'>{html.escape(chr(10).join(lines))}</p>")
+    consultant = plan.get("consultantReview") or {}
+    if consultant:
+        body_parts.append("<h2>컨설턴트 최종 리뷰</h2>")
+        lines = [f"제출 준비도: {consultant.get('readinessScore', 0)}점", f"판정: {consultant.get('decision', '')}"]
+        lines.extend(f"{item.get('priority')}. {item.get('area')}: {item.get('action')}" for item in consultant.get("topFixes", [])[:10])
+        body_parts.append(f"<p class='note'>{html.escape(chr(10).join(lines))}</p>")
+    cost_ledger = plan.get("aiCostLedger") or {}
+    if cost_ledger:
+        body_parts.append("<h2>AI 비용 추정 원장</h2>")
+        lines = [f"예상 총액: ${cost_ledger.get('estimatedTotalUsd', 0)} {cost_ledger.get('currency', 'USD')}"]
+        lines.extend(f"- {row.get('stage')}: {row.get('model')} / ${row.get('estimatedUsd')}" for row in cost_ledger.get("rows", []))
+        body_parts.append(f"<p class='note'>{html.escape(chr(10).join(lines))}</p>")
+    transfer = plan.get("secureTransferPolicy") or {}
+    if transfer:
+        body_parts.append("<h2>민감문서 전송 정책</h2>")
+        lines = [
+            f"상태: {transfer.get('status', '')}",
+            f"외부 API 전송 확인 필요: {transfer.get('requiresUserConfirmationBeforeAiTransfer', False)}",
+        ]
+        lines.extend(f"- {item}" for item in transfer.get("policy", []))
+        body_parts.append(f"<p class='note'>{html.escape(chr(10).join(lines))}</p>")
     for i, section in enumerate(plan.get("sections", []), start=1):
         body_parts.append(f"<h2>{i}. {html.escape(section.get('heading',''))}</h2>")
         body_parts.append(f"<p>{html.escape(section.get('content',''))}</p>")
@@ -5047,6 +5513,151 @@ def create_hwpx(plan: dict[str, Any], output_path: Path) -> None:
             archive.write(font_path, "Contents/Fonts/PretendardVariable.woff2", compress_type=zipfile.ZIP_DEFLATED)
 
 
+def svg_text_lines(text: str, max_chars: int = 28, max_lines: int = 4) -> list[str]:
+    text = clean_text(str(text))
+    if not text:
+        return [""]
+    words = text.split()
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if len(candidate) > max_chars and current:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+        if len(lines) >= max_lines:
+            break
+    if current and len(lines) < max_lines:
+        lines.append(current)
+    return lines[:max_lines] or [text[:max_chars]]
+
+
+def render_flow_svg(graphic: dict[str, Any], output_path: Path) -> None:
+    nodes = graphic.get("nodes") or []
+    width = 1280
+    height = 300 + max(0, len(nodes) - 4) * 36
+    card_w = max(180, min(240, (width - 140) // max(1, len(nodes))))
+    gap = max(20, (width - 80 - card_w * max(1, len(nodes))) // max(1, len(nodes) - 1) if len(nodes) > 1 else 20)
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" fill="#111820"/>',
+        f'<text x="40" y="54" fill="#F4F0E8" font-size="28" font-family="Pretendard, Arial" font-weight="700">{html.escape(graphic.get("title", "Infographic"))}</text>',
+    ]
+    y = 98
+    for index, node in enumerate(nodes):
+        x = 40 + index * (card_w + gap)
+        if x + card_w > width - 40:
+            x = 40 + (index % 4) * (card_w + 36)
+            y = 98 + (index // 4) * 150
+        parts.append(f'<rect x="{x}" y="{y}" width="{card_w}" height="118" rx="8" fill="#1D2833" stroke="#C7A76C" stroke-width="2"/>')
+        parts.append(f'<text x="{x + 16}" y="{y + 28}" fill="#C7A76C" font-size="16" font-family="Pretendard, Arial" font-weight="700">{html.escape(str(node.get("label", "")))}</text>')
+        for line_index, line in enumerate(svg_text_lines(node.get("text", ""), 22, 3)):
+            parts.append(f'<text x="{x + 16}" y="{y + 56 + line_index * 20}" fill="#E9EEF2" font-size="15" font-family="Pretendard, Arial">{html.escape(line)}</text>')
+        if index < len(nodes) - 1 and x + card_w + 24 < width:
+            parts.append(f'<path d="M{x + card_w + 8},{y + 58} L{x + card_w + gap - 8},{y + 58}" stroke="#6FAE9A" stroke-width="3" marker-end="url(#arrow)"/>')
+    parts.insert(
+        2,
+        '<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10z" fill="#6FAE9A"/></marker></defs>',
+    )
+    parts.append("</svg>")
+    output_path.write_text("\n".join(parts), encoding="utf-8")
+
+
+def render_table_svg(table: dict[str, Any], output_path: Path) -> None:
+    columns = table.get("columns") or []
+    rows = table.get("rows") or []
+    width = 1280
+    row_h = 82
+    height = 130 + row_h * max(1, len(rows))
+    col_w = (width - 80) // max(1, len(columns))
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" fill="#111820"/>',
+        f'<text x="40" y="54" fill="#F4F0E8" font-size="28" font-family="Pretendard, Arial" font-weight="700">{html.escape(table.get("title", "Table"))}</text>',
+    ]
+    y = 88
+    for col_index, column in enumerate(columns):
+        x = 40 + col_index * col_w
+        parts.append(f'<rect x="{x}" y="{y}" width="{col_w}" height="42" fill="#20303B" stroke="#425260"/>')
+        parts.append(f'<text x="{x + 12}" y="{y + 27}" fill="#C7A76C" font-size="15" font-family="Pretendard, Arial" font-weight="700">{html.escape(str(column))}</text>')
+    for row_index, row in enumerate(rows):
+        y = 130 + row_index * row_h
+        for col_index, cell in enumerate(row[: len(columns)]):
+            x = 40 + col_index * col_w
+            parts.append(f'<rect x="{x}" y="{y}" width="{col_w}" height="{row_h}" fill="#17222B" stroke="#425260"/>')
+            for line_index, line in enumerate(svg_text_lines(str(cell), 23, 3)):
+                parts.append(f'<text x="{x + 12}" y="{y + 24 + line_index * 18}" fill="#E9EEF2" font-size="14" font-family="Pretendard, Arial">{html.escape(line)}</text>')
+    parts.append("</svg>")
+    output_path.write_text("\n".join(parts), encoding="utf-8")
+
+
+def create_visual_asset_files(plan: dict[str, Any], base: str) -> list[dict[str, str]]:
+    visual_assets = plan.get("visualAssets") or {}
+    files: list[dict[str, str]] = []
+    manifest: list[dict[str, str]] = []
+    for table in (visual_assets.get("tables") or [])[:4]:
+        asset_id = safe_filename(table.get("id") or table.get("title") or "table", "table")
+        path = EXPORT_DIR / f"{base}-{asset_id}.svg"
+        render_table_svg(table, path)
+        files.append(export_link(f"시각자료 SVG - {table.get('title', '표')}", path))
+        manifest.append({"assetId": table.get("id", ""), "type": "table", "filename": path.name})
+    for graphic in (visual_assets.get("infographics") or [])[:4]:
+        asset_id = safe_filename(graphic.get("id") or graphic.get("title") or "infographic", "infographic")
+        path = EXPORT_DIR / f"{base}-{asset_id}.svg"
+        render_flow_svg(graphic, path)
+        files.append(export_link(f"인포그래픽 SVG - {graphic.get('title', '인포그래픽')}", path))
+        manifest.append({"assetId": graphic.get("id", ""), "type": "infographic", "filename": path.name})
+    if manifest:
+        manifest_path = EXPORT_DIR / f"{base}-visual-assets-manifest.json"
+        manifest_path.write_text(json.dumps({"assets": manifest, "createdAt": dt.datetime.now().isoformat(timespec="seconds")}, ensure_ascii=False, indent=2), encoding="utf-8")
+        files.append(export_link("시각자료 매니페스트 JSON", manifest_path))
+    return files
+
+
+def create_filled_template_attempt(plan: dict[str, Any], source_path: Path, base: str) -> tuple[Path | None, dict[str, Any]]:
+    if source_path.suffix.lower() != ".hwpx":
+        return None, {"status": "skipped", "message": "원본 양식이 HWPX가 아니어서 삽입 시도본을 생성하지 않았습니다."}
+    output_path = EXPORT_DIR / f"{base}-filled-template-review.hwpx"
+    answer_paragraphs = [
+        ("heading", "David Strategy Works 자동 기입 답변 검토본"),
+        ("note", "원본 HWPX 구조 보존을 우선하며, 1차 구현에서는 본문 섹션 말미에 생성 답변을 검토용으로 삽입합니다. 실제 제출 전 셀 위치를 확인하세요."),
+    ]
+    for index, section in enumerate(plan.get("sections", []), start=1):
+        answer_paragraphs.append(("heading", f"{index}. {section.get('heading', '')}"))
+        answer_paragraphs.append(("body", section.get("content", "")))
+    appendix_xml = "\n".join(paragraph_xml(text, kind, 90000 + index) for index, (kind, text) in enumerate(answer_paragraphs))
+    inserted = False
+    target_section = ""
+    try:
+        with zipfile.ZipFile(source_path) as source_zip, zipfile.ZipFile(output_path, "w") as output_zip:
+            for info in source_zip.infolist():
+                data = source_zip.read(info.filename)
+                if not inserted and info.filename.startswith("Contents/section") and info.filename.lower().endswith(".xml"):
+                    text = data.decode("utf-8", errors="replace")
+                    match = re.search(r"</[^>/]*:?sec\s*>", text[::-1])
+                    closing_index = -1
+                    if "</hp:sec>" in text:
+                        closing_index = text.rfind("</hp:sec>")
+                    elif "</sec>" in text:
+                        closing_index = text.rfind("</sec>")
+                    if closing_index >= 0:
+                        text = text[:closing_index] + appendix_xml + "\n" + text[closing_index:]
+                        data = text.encode("utf-8")
+                        inserted = True
+                        target_section = info.filename
+                output_zip.writestr(info, data)
+    except Exception as exc:
+        return None, {"status": "error", "message": f"원본 HWPX 삽입 시도 실패: {exc}"}
+    return output_path, {
+        "status": "created" if inserted else "not_inserted",
+        "filename": output_path.name if inserted else "",
+        "targetSection": target_section,
+        "message": "원본 HWPX 본문 말미에 검토용 답변 묶음을 삽입했습니다." if inserted else "삽입 가능한 본문 섹션을 찾지 못했습니다.",
+    }
+
+
 def create_template_preservation_files(plan: dict[str, Any], base: str, generated_hwpx_path: Path) -> list[dict[str, str]]:
     source = plan.get("templateSource") or {}
     stored_name = source.get("storedName", "")
@@ -5062,7 +5673,9 @@ def create_template_preservation_files(plan: dict[str, Any], base: str, generate
     original_ext = source_path.suffix or ".bin"
     original_export_path = EXPORT_DIR / f"{base}-original-template{original_ext}"
     mapping_path = EXPORT_DIR / f"{base}-template-answer-map.json"
+    fidelity_path = EXPORT_DIR / f"{base}-submission-fidelity-report.json"
     package_path = EXPORT_DIR / f"{base}-template-preservation-package.zip"
+    filled_path, filled_attempt = create_filled_template_attempt(plan, source_path, base)
 
     shutil.copy2(source_path, original_export_path)
     mapping = {
@@ -5071,9 +5684,15 @@ def create_template_preservation_files(plan: dict[str, Any], base: str, generate
         "templateSource": source,
         "generatedHwpx": generated_hwpx_path.name,
         "templateFillManifest": plan.get("templateFillManifest") or {},
+        "submissionFidelityReport": plan.get("submissionFidelityReport") or {},
+        "filledTemplateAttempt": filled_attempt,
         "visualPlacementPlan": plan.get("visualPlacementPlan") or {},
         "judgeReviewPack": plan.get("judgeReviewPack") or {},
         "securityReport": plan.get("securityReport") or {},
+        "evidenceLockReport": plan.get("evidenceLockReport") or {},
+        "consultantReview": plan.get("consultantReview") or {},
+        "aiCostLedger": plan.get("aiCostLedger") or {},
+        "secureTransferPolicy": plan.get("secureTransferPolicy") or {},
         "answerMap": [
             {
                 "sectionId": section.get("id", ""),
@@ -5088,15 +5707,23 @@ def create_template_preservation_files(plan: dict[str, Any], base: str, generate
         "createdAt": dt.datetime.now().isoformat(timespec="seconds"),
     }
     mapping_path.write_text(json.dumps(mapping, ensure_ascii=False, indent=2), encoding="utf-8")
+    fidelity_path.write_text(json.dumps(plan.get("submissionFidelityReport") or {}, ensure_ascii=False, indent=2), encoding="utf-8")
     with zipfile.ZipFile(package_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.write(original_export_path, f"original/{original_export_path.name}")
         archive.write(generated_hwpx_path, f"generated/{generated_hwpx_path.name}")
         archive.write(mapping_path, f"mapping/{mapping_path.name}")
-    return [
-        {"label": "원본 제출양식", "url": export_file_url(original_export_path.name), "filename": original_export_path.name},
-        {"label": "양식-답변 매핑 JSON", "url": export_file_url(mapping_path.name), "filename": mapping_path.name},
-        {"label": "양식 보존 패키지 ZIP", "url": export_file_url(package_path.name), "filename": package_path.name},
+        archive.write(fidelity_path, f"mapping/{fidelity_path.name}")
+        if filled_path and filled_path.exists():
+            archive.write(filled_path, f"filled/{filled_path.name}")
+    files = [
+        export_link("원본 제출양식", original_export_path),
+        export_link("양식-답변 매핑 JSON", mapping_path),
+        export_link("제출 충실도 리포트 JSON", fidelity_path),
+        export_link("양식 보존 패키지 ZIP", package_path),
     ]
+    if filled_path and filled_path.exists():
+        files.insert(2, export_link("원본 HWPX 답변 삽입 검토본", filled_path))
+    return files
 
 
 def create_export(plan: dict[str, Any]) -> dict[str, Any]:
@@ -5112,10 +5739,11 @@ def create_export(plan: dict[str, Any]) -> dict[str, Any]:
     create_html_export(plan, html_path)
     json_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
     files = [
-        {"label": "HWPX 사업계획서", "url": export_file_url(hwpx_path.name), "filename": hwpx_path.name},
-        {"label": "검토용 HTML", "url": export_file_url(html_path.name), "filename": html_path.name},
-        {"label": "초안 데이터 JSON", "url": export_file_url(json_path.name), "filename": json_path.name},
+        export_link("HWPX 사업계획서", hwpx_path),
+        export_link("검토용 HTML", html_path),
+        export_link("초안 데이터 JSON", json_path),
     ]
+    files.extend(create_visual_asset_files(plan, base))
     files.extend(create_template_preservation_files(plan, base, hwpx_path))
     return {
         "files": files,
@@ -5148,6 +5776,10 @@ class BriwellHandler(SimpleHTTPRequestHandler):
                 return self.send_json({"ok": True, "time": dt.datetime.now().isoformat(timespec="seconds")})
             if path == "/api/ai/settings":
                 return self.send_json(ai_settings_payload())
+            if path == "/api/ai/health":
+                query = urllib.parse.parse_qs(parsed.query)
+                live = (query.get("live") or ["0"])[0] in {"1", "true", "yes"}
+                return self.send_json(ai_provider_health(live))
             if path == "/api/grant-dataset":
                 return self.send_json(read_grant_success_dataset())
             if path == "/api/versions":

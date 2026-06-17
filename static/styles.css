@@ -929,6 +929,11 @@ select:focus {
   background: #1b1711;
 }
 
+.ops-card.estimated {
+  border-color: rgba(85, 183, 164, 0.28);
+  background: #101d1c;
+}
+
 .ops-card span,
 .ops-columns h4 {
   display: block;

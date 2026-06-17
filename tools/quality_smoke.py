@@ -110,10 +110,16 @@ def run() -> dict[str, object]:
             "templateQuestions": len(template.get("questions", [])),
             "sections": len(plan.get("sections", [])),
             "templateRows": len((plan.get("templateFillManifest") or {}).get("rows", [])),
+            "submissionFidelityStatus": (plan.get("submissionFidelityReport") or {}).get("status"),
             "judgeQuestions": len((plan.get("judgeReviewPack") or {}).get("judgeQuestions", [])),
             "visualPlacements": len((plan.get("visualPlacementPlan") or {}).get("placements", [])),
+            "evidenceLockStatus": (revised.get("evidenceLockReport") or {}).get("status"),
+            "consultantReadiness": (revised.get("consultantReview") or {}).get("readinessScore", 0),
+            "costLedgerRows": len((revised.get("aiCostLedger") or {}).get("rows", [])),
+            "secureTransferPolicy": (revised.get("secureTransferPolicy") or {}).get("status"),
             "revisionChangedSections": (revised.get("revisionDiff") or {}).get("changedSectionCount", 0),
             "exportFiles": len(exported.get("files", [])),
+            "svgFiles": len([item for item in exported.get("files", []) if item.get("filename", "").endswith(".svg")]),
             "hwpxEntriesOk": {
                 "mimetype",
                 "version.xml",
@@ -130,10 +136,16 @@ def run() -> dict[str, object]:
         assert checks["templateQuestions"] >= 3, checks
         assert checks["sections"] >= 3, checks
         assert checks["templateRows"] >= 3, checks
+        assert checks["submissionFidelityStatus"] in {"ok", "needs_review", "needs_work"}, checks
         assert checks["judgeQuestions"] >= 5, checks
         assert checks["visualPlacements"] >= 1, checks
+        assert checks["evidenceLockStatus"] in {"locked", "needs_evidence"}, checks
+        assert checks["consultantReadiness"] >= 0, checks
+        assert checks["costLedgerRows"] >= 3, checks
+        assert checks["secureTransferPolicy"] in {"ok", "confirmation_required"}, checks
         assert checks["revisionChangedSections"] >= 1, checks
         assert checks["exportFiles"] >= 3, checks
+        assert checks["svgFiles"] >= 1, checks
         assert checks["hwpxEntriesOk"], checks
         return checks
 

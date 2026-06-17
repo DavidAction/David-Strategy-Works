@@ -23,16 +23,21 @@
 - Grant success criteria dataset and UI
 - Repeatable local quality smoke test
 - Claude Opus 4.8 API ID standardized as `claude-opus-4-8`
+- Submission fidelity report for uploaded HWPX templates
+- Evidence-lock report and consultant-grade final review dashboard
+- Deterministic SVG rendering for proposal tables and infographics
+- AI model health endpoint and estimated cost ledger
+- Secure external-AI transfer policy report
 
 ## Next Production Steps
 
 - Real API-key integration test with Gemini/GPT/Claude
-- HWPX table/cell-level insertion for government forms
-- Evidence-locked drafting with claim-source enforcement
-- Visual asset rendering and HWPX asset insertion
+- Full HWPX table/cell-level insertion for every government form variant
+- Hard export blocking for unresolved high-risk evidence gaps
+- Generated visual asset insertion directly into HWPX body
 - OCR installation guide and adapter tests
 - Secure data handling policy for company legal/financial documents
 - Login/workspace separation
-- Cost tracking per AI stage
+- Actual provider billing reconciliation per AI stage
 - Evaluation dataset with real accepted/rejected proposal examples
-- Consultant-grade final review mode
+- Password/encrypted local workspace option

@@ -12,6 +12,12 @@ python tools\quality_smoke.py
 
 The smoke test checks document analysis, grant template analysis, draft generation, comment revision, export files, and HWPX package structure.
 
+Also confirm:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8765/api/ai/health
+```
+
 ## Document Extraction
 
 1. Upload an existing business plan and confirm the business-understanding report covers at least problem, customer, solution, market, traction, budget, team, and roadmap.
@@ -27,6 +33,7 @@ The smoke test checks document analysis, grant template analysis, draft generati
 3. Generate a draft and confirm HWPX fill mapping is present.
 4. Confirm source traceability marks most sections as grounded or partial.
 5. Confirm unsupported claim audit reports no invented numbers or exaggerated claims.
+6. Confirm evidence-lock, consultant review, AI cost ledger, and secure-transfer policy cards are visible.
 
 ## Revision Workflow
 
@@ -41,6 +48,8 @@ The smoke test checks document analysis, grant template analysis, draft generati
 2. Open the HTML review file and verify visual assets, judge questions, security report, and format checks.
 3. Open the HWPX in Hancom Office or compatible viewer.
 4. If an original template was uploaded, confirm the template preservation package includes the original file and mapping JSON.
+5. Confirm SVG visual assets and visual manifest are exported.
+6. If an original HWPX template was uploaded, confirm the submission fidelity report and filled-template review file are exported.
 
 ## Handoff
 

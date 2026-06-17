@@ -1147,8 +1147,13 @@ function renderValidation() {
 
 function renderOperationalReports() {
   renderTemplateFillManifest();
+  renderSubmissionFidelityReport();
+  renderEvidenceLockReport();
+  renderConsultantReview();
   renderJudgeReviewPack();
   renderSecurityReport();
+  renderAiCostLedger();
+  renderSecureTransferPolicy();
   renderWorkspaceManagement();
 }
 
@@ -1170,6 +1175,72 @@ function renderTemplateFillManifest() {
         <strong>${manifest.exactCellFillReady ? "문항 단위 매핑 준비" : "수동 확인 필요"}</strong>
         <p>${escapeHtml(manifest.message || "")}</p>
         <ul>${rows}</ul>
+      </article>
+    `;
+  });
+}
+
+function renderSubmissionFidelityReport() {
+  const targets = [qs("#submissionFidelityReport"), qs("#exportSubmissionFidelityReport")].filter(Boolean);
+  const report = state.plan?.submissionFidelityReport;
+  targets.forEach((root) => {
+    if (!report) {
+      root.innerHTML = "";
+      return;
+    }
+    const hwpx = report.hwpxAnalysis || {};
+    const risks = (report.riskItems || []).slice(0, 4).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+    root.innerHTML = `
+      <article class="ops-card ${escapeAttr(report.status || "")}">
+        <span>제출 양식 충실도</span>
+        <strong>섹션 ${Number(hwpx.sectionXmlCount || 0)} · 표 ${Number(hwpx.tableCount || 0)} · 셀 ${Number(hwpx.cellCount || 0)}</strong>
+        <p>${escapeHtml(report.nextAction || report.hwpxAnalysis?.message || "")}</p>
+        <ul>${risks || `<li>매핑 답변 ${Number(report.mappedAnswerCount || 0)}개가 준비됐습니다.</li>`}</ul>
+      </article>
+    `;
+  });
+}
+
+function renderEvidenceLockReport() {
+  const targets = [qs("#evidenceLockReport"), qs("#exportEvidenceLockReport")].filter(Boolean);
+  const report = state.plan?.evidenceLockReport;
+  targets.forEach((root) => {
+    if (!report) {
+      root.innerHTML = "";
+      return;
+    }
+    const assumptions = (report.assumptions || [])
+      .slice(0, 4)
+      .map((item) => `<li>${escapeHtml(item.heading || "문항")} · ${escapeHtml(item.requiredAction || "")}</li>`)
+      .join("");
+    root.innerHTML = `
+      <article class="ops-card ${report.status === "locked" ? "ok" : "needs_work"}">
+        <span>근거 잠금 게이트</span>
+        <strong>${escapeHtml(report.exportGate || "")} · 보완 ${Number(report.needsGroundingSections || 0)}개 · 고위험 ${Number(report.highRiskClaims || 0)}개</strong>
+        <p>${escapeHtml(report.message || "")}</p>
+        <ul>${assumptions}</ul>
+      </article>
+    `;
+  });
+}
+
+function renderConsultantReview() {
+  const targets = [qs("#consultantReview"), qs("#exportConsultantReview")].filter(Boolean);
+  const review = state.plan?.consultantReview;
+  targets.forEach((root) => {
+    if (!review) {
+      root.innerHTML = "";
+      return;
+    }
+    const fixes = (review.topFixes || [])
+      .slice(0, 5)
+      .map((item) => `<li>${Number(item.priority || 0)}. ${escapeHtml(item.area || "")} · ${escapeHtml(item.action || "")}</li>`)
+      .join("");
+    root.innerHTML = `
+      <article class="ops-card ${escapeAttr(review.status || "")}">
+        <span>컨설턴트 최종 리뷰</span>
+        <strong>${Number(review.readinessScore || 0)}점 · ${escapeHtml(review.decision || "")}</strong>
+        <ul>${fixes}</ul>
       </article>
     `;
   });
@@ -1212,6 +1283,47 @@ function renderSecurityReport() {
         <span>보안·개인정보 점검</span>
         <strong>민감문서 ${Number(report.restrictedDocumentCount || 0)}건 · Git 보호 ${report.gitignoreProtected ? "정상" : "확인 필요"}</strong>
         <ul>${actions}</ul>
+      </article>
+    `;
+  });
+}
+
+function renderAiCostLedger() {
+  const targets = [qs("#aiCostLedger"), qs("#exportAiCostLedger")].filter(Boolean);
+  const ledger = state.plan?.aiCostLedger;
+  targets.forEach((root) => {
+    if (!ledger) {
+      root.innerHTML = "";
+      return;
+    }
+    const rows = (ledger.rows || [])
+      .map((row) => `<li>${escapeHtml(row.stage || "")} · ${escapeHtml(row.model || "")} · $${Number(row.estimatedUsd || 0).toFixed(4)}</li>`)
+      .join("");
+    root.innerHTML = `
+      <article class="ops-card estimated">
+        <span>AI 비용 추정 원장</span>
+        <strong>$${Number(ledger.estimatedTotalUsd || 0).toFixed(4)} ${escapeHtml(ledger.currency || "USD")}</strong>
+        <ul>${rows}</ul>
+      </article>
+    `;
+  });
+}
+
+function renderSecureTransferPolicy() {
+  const targets = [qs("#secureTransferPolicy"), qs("#exportSecureTransferPolicy")].filter(Boolean);
+  const policy = state.plan?.secureTransferPolicy;
+  targets.forEach((root) => {
+    if (!policy) {
+      root.innerHTML = "";
+      return;
+    }
+    const rows = (policy.policy || []).slice(0, 4).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+    root.innerHTML = `
+      <article class="ops-card ${policy.status === "ok" ? "ok" : "needs_review"}">
+        <span>민감문서 전송 정책</span>
+        <strong>민감문서 ${Number(policy.restrictedDocumentCount || 0)}건 · 외부 API ${policy.externalApiConfigured ? "설정됨" : "미설정"}</strong>
+        <p>AI 전송 전 확인 필요: ${policy.requiresUserConfirmationBeforeAiTransfer ? "예" : "아니오"}</p>
+        <ul>${rows}</ul>
       </article>
     `;
   });
