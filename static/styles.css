@@ -468,6 +468,76 @@ select:focus {
   align-content: start;
 }
 
+.queue-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.queue-actions .hint {
+  margin: 0;
+  font-size: 12px;
+}
+
+.upload-queue {
+  display: grid;
+  gap: 8px;
+}
+
+.upload-queue.empty-state {
+  min-height: 78px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #11141a;
+}
+
+.queue-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #101217;
+  padding: 10px 11px;
+}
+
+.queue-file {
+  min-width: 0;
+}
+
+.queue-file strong {
+  display: block;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-file span {
+  display: block;
+  margin-top: 4px;
+  color: var(--subtle);
+  font-size: 11px;
+}
+
+.queue-remove {
+  min-width: 42px;
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #171a21;
+  color: var(--muted);
+}
+
+.queue-remove:hover {
+  border-color: rgba(217, 107, 124, 0.42);
+  color: var(--red);
+}
+
 .analysis-board,
 .document-board {
   overflow: hidden;

@@ -4,6 +4,7 @@ const state = {
   activeProfileId: "",
   template: null,
   documentInsights: null,
+  documentQueue: [],
   templateGuidance: null,
   plan: null,
   aiSettings: null,
@@ -467,6 +468,7 @@ function resetWorkspaceForProfile() {
   state.company = normalizeCompany({});
   state.template = null;
   state.documentInsights = null;
+  state.documentQueue = [];
   state.templateGuidance = null;
   state.plan = null;
   state.versions = [];
@@ -487,6 +489,7 @@ function resetWorkspaceForProfile() {
   qs("#versionLabel").value = "";
   qs("#revisionComments").value = "";
   renderCompanyForm();
+  renderDocumentQueue();
   renderDocumentInsights();
   renderAnalysis();
   renderDraft();
@@ -516,23 +519,109 @@ function fileToBase64(file) {
   });
 }
 
+const documentTypeLabels = {
+  "": "자동 분류",
+  existing_business_plan: "기존 사업계획서",
+  business_registration: "사업자등록증",
+  corporate_registry: "등기부등본",
+  finance: "재무자료",
+  ip_certification: "지식재산/인증",
+  general: "일반 참고자료",
+};
+
+function formatBytes(bytes = 0) {
+  const value = Number(bytes || 0);
+  if (value < 1024) return `${value.toLocaleString()} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function queuedDocumentKey(file) {
+  return `${file.name}::${file.size}::${file.lastModified}`;
+}
+
+function enqueueCompanyDocuments(event) {
+  const files = Array.from(event.target.files || []);
+  if (!files.length) return;
+
+  const typeHint = qs("#documentTypeHint")?.value || "";
+  const existing = new Set(state.documentQueue.map((item) => item.key));
+  let added = 0;
+
+  for (const file of files) {
+    const key = queuedDocumentKey(file);
+    if (existing.has(key)) continue;
+    existing.add(key);
+    state.documentQueue.push({
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      key,
+      file,
+      documentType: typeHint,
+    });
+    added += 1;
+  }
+
+  event.target.value = "";
+  renderDocumentQueue();
+  setStatus(added ? `${added}개 문서를 분석 대기열에 추가했습니다.` : "이미 대기열에 있는 파일입니다.");
+}
+
+function renderDocumentQueue() {
+  const root = qs("#documentQueue");
+  if (!root) return;
+  if (!state.documentQueue.length) {
+    root.className = "upload-queue empty-state";
+    root.textContent = "분석 대기 중인 파일이 없습니다.";
+    return;
+  }
+
+  root.className = "upload-queue";
+  root.innerHTML = state.documentQueue
+    .map((item) => {
+      const label = documentTypeLabels[item.documentType || ""] || documentTypeLabels[""];
+      return `
+        <article class="queue-item">
+          <div class="queue-file">
+            <strong title="${escapeAttr(item.file.name)}">${escapeHtml(item.file.name)}</strong>
+            <span>${escapeHtml(label)} · ${formatBytes(item.file.size)}</span>
+          </div>
+          <button class="queue-remove" type="button" data-remove-doc-id="${escapeAttr(item.id)}" title="대기열에서 삭제">삭제</button>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function removeQueuedDocument(id) {
+  state.documentQueue = state.documentQueue.filter((item) => item.id !== id);
+  renderDocumentQueue();
+  setStatus("대기열에서 파일을 제거했습니다.");
+}
+
+function clearDocumentQueue() {
+  state.documentQueue = [];
+  qs("#companyDocs").value = "";
+  renderDocumentQueue();
+  setStatus("문서 대기열을 비웠습니다.");
+}
+
 async function analyzeDocuments() {
-  const files = Array.from(qs("#companyDocs").files || []);
+  const queuedFiles = [...state.documentQueue];
   const pasted = qs("#documentText").value.trim();
   const notes = qs("#additionalNotes").value.trim();
-  if (!files.length && !pasted && !notes) {
+  if (!queuedFiles.length && !pasted && !notes) {
     setStatus("회사 문서 또는 추가 의견이 필요합니다.");
     return;
   }
 
-  setStatus("회사 문서 분석 중");
+  setStatus(queuedFiles.length ? `${queuedFiles.length}개 파일 일괄 분석 중...` : "입력 내용 분석 중...");
   const typeHint = qs("#documentTypeHint").value;
   const documents = [];
-  for (const file of files) {
+  for (const item of queuedFiles) {
     documents.push({
-      filename: file.name,
-      contentBase64: await fileToBase64(file),
-      documentType: typeHint,
+      filename: item.file.name,
+      contentBase64: await fileToBase64(item.file),
+      documentType: item.documentType || typeHint,
     });
   }
   if (pasted) {
@@ -551,8 +640,12 @@ async function analyzeDocuments() {
   state.company = mergeDeep(collectCompany(), state.documentInsights.companyPatch || {}, true);
   renderCompanyForm();
   renderDocumentInsights();
+  state.documentQueue = [];
+  qs("#companyDocs").value = "";
+  renderDocumentQueue();
   activatePanel("documents");
-  setStatus("회사 문서 분석 완료");
+  const analyzedInputs = documents.length + (notes ? 1 : 0);
+  setStatus(`${analyzedInputs}개 입력 항목 기반 분석 완료`);
 }
 
 function applyDocumentPatch() {
@@ -1930,6 +2023,12 @@ async function boot() {
   qs("#profileSelect").addEventListener("change", (event) => {
     loadProfile(event.target.value);
   });
+  qs("#companyDocs").addEventListener("change", enqueueCompanyDocuments);
+  qs("#clearDocQueueBtn").addEventListener("click", clearDocumentQueue);
+  qs("#documentQueue").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove-doc-id]");
+    if (button) removeQueuedDocument(button.dataset.removeDocId);
+  });
   qs("#analyzeDocsBtn").addEventListener("click", analyzeDocuments);
   qs("#applyDocPatchBtn").addEventListener("click", applyDocumentPatch);
   qs("#analyzeBtn").addEventListener("click", analyzeTemplate);
@@ -1957,6 +2056,7 @@ async function boot() {
     } else {
       state.company = normalizeCompany({});
       renderCompanyForm();
+      renderDocumentQueue();
       renderDocumentInsights();
       renderAnalysis();
       renderDraft();
@@ -1966,6 +2066,7 @@ async function boot() {
   } catch (error) {
     state.company = normalizeCompany({});
     renderCompanyForm();
+    renderDocumentQueue();
     renderProfileSelect();
     renderAiEngine();
     setStatus(error.message);
