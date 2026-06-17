@@ -20,7 +20,7 @@ python server.py --port 8765
 - Google `gemini-3.1-flash-lite`: 업로드 문서 요약·사실 추출
 - Google `gemini-3.1-pro-preview`: 긴 자료 기반 고급 초안 후보
 - OpenAI `gpt-5.5`: 제출용 문장 정제, 구조화 출력, 형식 검증
-- Anthropic `claude-opus-4.8`: 최종 심사위원 관점 리스크 리뷰
+- Anthropic `claude-opus-4-8` (Claude Opus 4.8): 최종 심사위원 관점 리스크 리뷰
 - Google `gemini-3-pro-image`: 이미지·인포그래픽 브리프
 
 API 키가 없으면 로컬 규칙 기반 생성기로 동작합니다.

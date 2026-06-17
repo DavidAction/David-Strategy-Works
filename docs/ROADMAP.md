@@ -21,13 +21,18 @@
 - Comment-driven revised business plan generation
 - Version-level edit/update/export workflow
 - Grant success criteria dataset and UI
+- Repeatable local quality smoke test
+- Claude Opus 4.8 API ID standardized as `claude-opus-4-8`
 
 ## Next Production Steps
 
 - Real API-key integration test with Gemini/GPT/Claude
 - HWPX table/cell-level insertion for government forms
+- Evidence-locked drafting with claim-source enforcement
+- Visual asset rendering and HWPX asset insertion
 - OCR installation guide and adapter tests
 - Secure data handling policy for company legal/financial documents
 - Login/workspace separation
 - Cost tracking per AI stage
 - Evaluation dataset with real accepted/rejected proposal examples
+- Consultant-grade final review mode

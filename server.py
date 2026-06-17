@@ -95,7 +95,7 @@ AI_MODEL_ASSIGNMENTS: dict[str, Any] = {
     "strategicRedTeam": {
         "provider": "Anthropic",
         "api": "Claude API",
-        "model": "claude-opus-4.8",
+        "model": "claude-opus-4-8",
         "reasoningEffort": "adaptive",
         "score": 95,
         "role": "최종 제출 전 심사위원 반박 관점, 리스크, 과장 표현, 논리 공백 감사",
@@ -105,7 +105,7 @@ AI_MODEL_ASSIGNMENTS: dict[str, Any] = {
     "longContextReview": {
         "provider": "Anthropic",
         "api": "Claude API",
-        "model": "claude-opus-4.8",
+        "model": "claude-opus-4-8",
         "reasoningEffort": "adaptive",
         "score": 94,
         "role": "긴 문서 묶음의 일관성 검토, 기존 사업계획서와 신규 양식 간 충돌 확인",
@@ -138,7 +138,7 @@ AI_MODEL_ASSIGNMENTS: dict[str, Any] = {
         },
         {
             "provider": "Anthropic",
-            "model": "claude-opus-4.8",
+            "model": "claude-opus-4-8",
             "bestFor": "가장 어려운 추론, 장기 문맥, 최종 반박 검토",
             "tradeoff": "비용이 높으므로 모든 문항 생성이 아니라 최종 감사에 제한. 최종 리뷰는 fallback 없이 Opus 4.8로 고정",
             "inputPerMTok": "$5.00",

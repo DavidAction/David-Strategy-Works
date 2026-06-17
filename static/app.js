@@ -966,7 +966,7 @@ function renderAiEngine() {
       ["문서 분석", modelLabel(assignments.documentAnalysis, "Google", "gemini-3.1-flash-lite"), "업로드 문서 요약, 사실 추출, 회사 프로필 보강"],
       ["고급 초안 후보", modelLabel(assignments.firstDraftAlternative, "Google", "gemini-3.1-pro-preview"), "긴 자료와 복합 양식에 대한 대체 초안"],
       ["형식 검증", modelLabel(assignments.formatReview, "OpenAI", "gpt-5.5"), "분량, 문항 순서, 제출 규칙 점검"],
-      ["최종 심사 리뷰", modelLabel(assignments.strategicRedTeam, "Anthropic", "claude-opus-4.8"), "심사위원 관점의 반박, 리스크, 논리 공백 검토"],
+      ["최종 심사 리뷰", modelLabel(assignments.strategicRedTeam, "Anthropic", "claude-opus-4-8"), "심사위원 관점의 반박, 리스크, 논리 공백 검토"],
       ["시각자료 브리프", modelLabel(assignments.visualPlanning, "Google", "gemini-3-pro-image"), "표, 인포그래픽, 이미지 생성 지시문 설계"],
     ];
     const pipeline = (engine?.pipeline || [])

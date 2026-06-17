@@ -2,9 +2,19 @@
 
 Use this checklist before relying on a generated proposal for submission.
 
+## Automated Smoke Test
+
+Run this first after every meaningful code change:
+
+```powershell
+python tools\quality_smoke.py
+```
+
+The smoke test checks document analysis, grant template analysis, draft generation, comment revision, export files, and HWPX package structure.
+
 ## Document Extraction
 
-1. Upload an existing business plan and confirm `기존 사업계획서 심층 이해` covers at least problem, customer, solution, market, traction, budget, team, and roadmap.
+1. Upload an existing business plan and confirm the business-understanding report covers at least problem, customer, solution, market, traction, budget, team, and roadmap.
 2. Upload business registration and corporate registry documents and confirm legal identifiers are extracted when present.
 3. Upload a text PDF and confirm paragraphs and tables are extracted.
 4. Upload a scanned PDF or image after installing Tesseract/Poppler and confirm OCR notes are shown.

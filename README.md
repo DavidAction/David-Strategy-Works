@@ -58,7 +58,7 @@ API 키가 있으면 단계별로 멀티 모델을 사용하도록 설계되어 
 - 문서 분석: Google `gemini-3.1-flash-lite`
 - 긴 자료 기반 고급 초안 후보: Google `gemini-3.1-pro-preview`
 - 제출 문장 정제·형식 검증: OpenAI `gpt-5.5`
-- 최종 심사위원 관점 리뷰: Anthropic `claude-opus-4.8`
+- 최종 심사위원 관점 리뷰: Anthropic `claude-opus-4-8` (Claude Opus 4.8)
 - 이미지 생성 브리프: Google `gemini-3-pro-image`, fallback OpenAI `gpt-image-2`
 
 환경 변수는 `.env.example`을 참고하세요.
@@ -69,7 +69,13 @@ API 키가 있으면 단계별로 멀티 모델을 사용하도록 설계되어 
 
 다른 PC로 기존 작업을 옮기려면 GitHub clone 후 기존 PC의 `data/`, `exports/`, `.env`를 새 PC의 프로젝트 폴더로 복사하세요.
 
-보안 운영 지침은 [docs/SECURITY.md](docs/SECURITY.md), 실전 검증 체크리스트는 [docs/TEST_PLAN.md](docs/TEST_PLAN.md)를 참고하세요.
+보안 운영 지침은 [docs/SECURITY.md](docs/SECURITY.md), 실전 검증 체크리스트는 [docs/TEST_PLAN.md](docs/TEST_PLAN.md), 제품 고도화 감사는 [docs/QUALITY_UPGRADE_AUDIT.md](docs/QUALITY_UPGRADE_AUDIT.md)를 참고하세요.
+
+표준 회귀검증은 다음 명령으로 실행합니다.
+
+```powershell
+python tools\quality_smoke.py
+```
 
 ## 다음 제품화 과제
 
