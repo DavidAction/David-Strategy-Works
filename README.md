@@ -10,6 +10,16 @@ python server.py --port 8765
 
 브라우저에서 `http://127.0.0.1:8765/`로 접속합니다.
 
+Windows에서는 더 쉽게 실행할 수 있습니다.
+
+```powershell
+.\start-dsw.ps1
+```
+
+또는 `start-dsw.bat`을 더블클릭하세요.
+
+다른 노트북/데스크탑 설치 방법은 [docs/INSTALL.md](docs/INSTALL.md)를 보세요.
+
 ## 주요 흐름
 
 1. 회사별 프로필을 생성하거나 기존 프로필을 선택합니다.
@@ -52,6 +62,8 @@ API 키가 있으면 단계별로 멀티 모델을 사용하도록 설계되어 
 ## GitHub 업로드 주의
 
 `data/`, `exports/`, `.env`, 로그 파일은 `.gitignore`에 포함되어 있습니다. 실제 사업자등록증, 등기부등본, 재무자료, 회사 기밀 문서는 public repository에 올리지 마세요.
+
+다른 PC로 기존 작업을 옮기려면 GitHub clone 후 기존 PC의 `data/`, `exports/`, `.env`를 새 PC의 프로젝트 폴더로 복사하세요.
 
 ## 다음 제품화 과제
 

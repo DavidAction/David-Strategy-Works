@@ -12,6 +12,8 @@ python server.py --port 8765
 
 브라우저에서 `http://127.0.0.1:8765/`로 접속합니다.
 
+새 PC 설치와 데이터 이전 절차는 `docs/INSTALL.md`를 기준으로 안내하세요.
+
 ## 현재 AI 배정
 
 - Google `gemini-3.5-flash`: 한국어 사업계획서 1차 초안

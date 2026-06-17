@@ -806,6 +806,27 @@ def log_line(message: str) -> None:
         pass
 
 
+def load_env_file(path: Path | None = None) -> None:
+    env_path = path or (ROOT / ".env")
+    if not env_path.exists():
+        return
+    try:
+        lines = env_path.read_text(encoding="utf-8-sig").splitlines()
+    except UnicodeDecodeError:
+        lines = env_path.read_text(encoding="cp949").splitlines()
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, raw_value = line.split("=", 1)
+        key = key.strip()
+        value_text = raw_value.strip()
+        if (value_text.startswith('"') and value_text.endswith('"')) or (value_text.startswith("'") and value_text.endswith("'")):
+            value_text = value_text[1:-1]
+        if key and key not in os.environ:
+            os.environ[key] = value_text
+
+
 def openai_api_key() -> str:
     return os.environ.get("OPENAI_API_KEY", "").strip()
 
@@ -3792,6 +3813,7 @@ class BriwellHandler(SimpleHTTPRequestHandler):
 
 
 def main() -> None:
+    load_env_file()
     parser = argparse.ArgumentParser(description="David Strategy Works local grant proposal writer")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8765")))
