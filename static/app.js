@@ -871,6 +871,8 @@ function renderDraft() {
     renderAiEngine();
     renderScorecard();
     renderValidation();
+    renderEvidenceTraceability();
+    renderUnsupportedClaimAudit();
     renderVisualAssets();
     renderQuality();
     renderMetrics();
@@ -880,6 +882,8 @@ function renderDraft() {
   renderAiEngine();
   renderScorecard();
   renderValidation();
+  renderEvidenceTraceability();
+  renderUnsupportedClaimAudit();
   renderVisualAssets();
   root.innerHTML = (plan.sections || [])
     .map(
@@ -1136,6 +1140,97 @@ function renderValidation() {
       )
       .join("");
   });
+}
+
+function renderEvidenceTraceability() {
+  const targets = [qs("#evidenceTraceability"), qs("#exportEvidenceTraceability")].filter(Boolean);
+  const trace = state.plan?.evidenceTraceability;
+  targets.forEach((root) => {
+    if (!trace) {
+      root.innerHTML = "";
+      return;
+    }
+    const sections = (trace.sections || [])
+      .map((section) => {
+        const evidence = (section.matchedEvidence || [])
+          .slice(0, 3)
+          .map(
+            (item) => `
+              <li>
+                <span>${escapeHtml(item.areaLabel || "원문 근거")} · ${escapeHtml(item.source || "")} · ${Number(item.matchScore || 0)}점</span>
+                <p>${escapeHtml(item.text || "")}</p>
+              </li>
+            `
+          )
+          .join("");
+        const suggested = !evidence
+          ? (section.suggestedEvidence || [])
+              .slice(0, 2)
+              .map((item) => `<li><span>${escapeHtml(item.areaLabel || "보강 근거")} · ${escapeHtml(item.source || "")}</span><p>${escapeHtml(item.text || "")}</p></li>`)
+              .join("")
+          : "";
+        return `
+          <article class="trace-section ${escapeAttr(section.status || "")}">
+            <div>
+              <span>${escapeHtml(traceStatusLabel(section.status))}</span>
+              <strong>${escapeHtml(section.heading || "문항")}</strong>
+              <small>근거점수 ${Number(section.supportScore || 0)}점 · 후보 ${Number(section.availableEvidence || 0)}개</small>
+            </div>
+            ${(evidence || suggested) ? `<ol>${evidence || suggested}</ol>` : `<p class="hint">연결 가능한 원문 근거가 부족합니다.</p>`}
+          </article>
+        `;
+      })
+      .join("");
+    root.innerHTML = `
+      <article class="trace-hero ${escapeAttr(trace.status || "")}">
+        <span>원문 근거 추적성</span>
+        <strong>${Number(trace.groundedSections || 0)}개 충분 · ${Number(trace.partialSections || 0)}개 부분 · ${Number(trace.needsGroundingSections || 0)}개 보강 필요</strong>
+        <p>평균 근거점수 ${Number(trace.averageSupportScore || 0)}점. 각 문항이 업로드 문서의 어떤 원문 근거를 사용했는지 확인합니다.</p>
+      </article>
+      ${sections}
+    `;
+  });
+}
+
+function renderUnsupportedClaimAudit() {
+  const targets = [qs("#unsupportedClaimAudit"), qs("#exportUnsupportedClaimAudit")].filter(Boolean);
+  const audit = state.plan?.unsupportedClaimAudit;
+  targets.forEach((root) => {
+    if (!audit) {
+      root.innerHTML = "";
+      return;
+    }
+    const claims = (audit.claims || [])
+      .map(
+        (claim) => `
+          <article class="claim-item ${escapeAttr(claim.severity || "")}">
+            <span>${escapeHtml(claim.severity === "high" ? "고위험" : "주의")}</span>
+            <strong>${escapeHtml(claim.heading || "문항")}</strong>
+            <p>${escapeHtml(claim.claim || "")}</p>
+            <small>${escapeHtml(claim.reason || "")}</small>
+          </article>
+        `
+      )
+      .join("");
+    root.innerHTML = `
+      <article class="claim-hero ${escapeAttr(audit.status || "")}">
+        <span>근거 없는 주장 점검</span>
+        <strong>고위험 ${Number(audit.highRiskClaims || 0)}건 · 주의 ${Number(audit.mediumRiskClaims || 0)}건</strong>
+        <p>업로드 원문에 없는 숫자, 성과, 과장 표현이 초안에 새로 생겼는지 확인합니다.</p>
+      </article>
+      ${claims || `<article class="claim-item ok"><strong>검출된 위험 주장이 없습니다.</strong><p>현재 초안의 주요 숫자와 강한 표현은 업로드 근거 범위 안에서 관리되고 있습니다.</p></article>`}
+    `;
+  });
+}
+
+function traceStatusLabel(status) {
+  const labels = {
+    grounded: "근거 충분",
+    partial: "부분 연결",
+    needs_grounding: "보강 필요",
+    no_source: "근거 없음",
+  };
+  return labels[status] || "확인";
 }
 
 async function exportPlan() {

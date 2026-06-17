@@ -2640,7 +2640,7 @@ def generate_plan(company: dict[str, Any], template: dict[str, Any], options: di
     }
     if options.get("useAI", True):
         plan = enhance_plan_with_ai(plan, company, template, options)
-    return plan
+    return attach_grounding_audit(plan, document_insights)
 
 
 def build_ai_engine_report(mode: str, message: str, error: str = "") -> dict[str, Any]:
@@ -3291,6 +3291,258 @@ def business_understanding_context_lines(category: str, document_insights: dict[
             top = evidence[0]
             lines.append(f"{area.get('label', area_id)} 근거: {clean_text(top.get('text', ''))[:420]}")
     return lines[:6]
+
+
+def support_tokens(text: str) -> set[str]:
+    tokens = re.findall(r"[A-Za-z가-힣0-9][A-Za-z가-힣0-9\-\+\.]{1,}", clean_text(text).lower())
+    stopwords = {
+        "사업",
+        "계획",
+        "지원",
+        "고객",
+        "제품",
+        "서비스",
+        "시장",
+        "기반",
+        "진행",
+        "추진",
+        "개선",
+        "운영",
+        "활용",
+        "통해",
+        "위한",
+        "대한",
+    }
+    return {token for token in tokens if len(token) >= 2 and token not in stopwords}
+
+
+def support_numbers(text: str) -> set[str]:
+    numbers = re.findall(r"\d[\d,]*(?:\.\d+)?\s*(?:%|명|건|개|원|만원|억원|회|월|년|주|점)?", clean_text(text))
+    return {re.sub(r"\s+", "", number) for number in numbers if number.strip()}
+
+
+def section_evidence_candidates(section: dict[str, Any], document_insights: dict[str, Any]) -> list[dict[str, Any]]:
+    understanding = (document_insights or {}).get("businessUnderstanding") or {}
+    knowledge = understanding.get("knowledge") or {}
+    category = section.get("category") or "overview"
+    area_ids = SECTION_UNDERSTANDING_MAP.get(category, ["overview", "problem", "solution"])
+    candidates: list[dict[str, Any]] = []
+    for area_id in area_ids:
+        area = knowledge.get(area_id) or {}
+        for evidence in area.get("evidence", []) or []:
+            item = dict(evidence)
+            item.setdefault("area", area_id)
+            item.setdefault("areaLabel", area.get("label", area_id))
+            candidates.append(item)
+    for evidence in understanding.get("evidenceBank", []) or []:
+        if evidence.get("area") in area_ids:
+            candidates.append(dict(evidence))
+    return dedupe_ranked_evidence(candidates, 12)
+
+
+def evidence_match_score(section_text: str, evidence_text: str) -> int:
+    section_tokens = support_tokens(section_text)
+    evidence_tokens = support_tokens(evidence_text)
+    overlap = section_tokens & evidence_tokens
+    section_numbers = support_numbers(section_text)
+    evidence_numbers = support_numbers(evidence_text)
+    number_hits = section_numbers & evidence_numbers
+    score = min(60, len(overlap) * 6) + min(40, len(number_hits) * 14)
+    if clean_text(evidence_text)[:80] and clean_text(evidence_text)[:80] in section_text:
+        score += 20
+    return min(100, score)
+
+
+def build_evidence_traceability(sections: list[dict[str, Any]], document_insights: dict[str, Any] | None) -> dict[str, Any]:
+    document_insights = document_insights or {}
+    section_reports: list[dict[str, Any]] = []
+    for section in sections:
+        candidates = section_evidence_candidates(section, document_insights)
+        matches: list[dict[str, Any]] = []
+        section_text = clean_text(section.get("content", ""))
+        for candidate in candidates:
+            text = clean_text(candidate.get("text", ""))
+            score = evidence_match_score(section_text, text)
+            if score >= 12:
+                item = dict(candidate)
+                item["matchScore"] = score
+                matches.append(item)
+        matches = sorted(matches, key=lambda item: item.get("matchScore", 0), reverse=True)[:5]
+        support_score = round(sum(item.get("matchScore", 0) for item in matches[:3]) / max(1, min(3, len(matches)))) if matches else 0
+        if support_score >= 45 or len(matches) >= 3:
+            status = "grounded"
+        elif matches:
+            status = "partial"
+        elif candidates:
+            status = "needs_grounding"
+        else:
+            status = "no_source"
+        section_reports.append(
+            {
+                "sectionId": section.get("id", ""),
+                "heading": section.get("heading", ""),
+                "category": section.get("category", ""),
+                "status": status,
+                "supportScore": support_score,
+                "availableEvidence": len(candidates),
+                "matchedEvidence": [
+                    {
+                        "area": item.get("area", ""),
+                        "areaLabel": item.get("areaLabel", ""),
+                        "source": item.get("source", ""),
+                        "text": item.get("text", ""),
+                        "matchScore": item.get("matchScore", 0),
+                    }
+                    for item in matches
+                ],
+                "suggestedEvidence": [
+                    {
+                        "area": item.get("area", ""),
+                        "areaLabel": item.get("areaLabel", ""),
+                        "source": item.get("source", ""),
+                        "text": item.get("text", ""),
+                    }
+                    for item in candidates[:3]
+                ],
+            }
+        )
+    grounded = sum(1 for item in section_reports if item.get("status") == "grounded")
+    partial = sum(1 for item in section_reports if item.get("status") == "partial")
+    needs = sum(1 for item in section_reports if item.get("status") in {"needs_grounding", "no_source"})
+    total = len(section_reports)
+    average_score = round(sum(item.get("supportScore", 0) for item in section_reports) / total) if total else 0
+    return {
+        "status": "ok" if total and needs == 0 and average_score >= 35 else ("partial" if grounded or partial else "needs_work"),
+        "totalSections": total,
+        "groundedSections": grounded,
+        "partialSections": partial,
+        "needsGroundingSections": needs,
+        "averageSupportScore": average_score,
+        "sections": section_reports,
+    }
+
+
+RISKY_CLAIM_PHRASES = [
+    "국내 최초",
+    "세계 최초",
+    "업계 최초",
+    "유일",
+    "최고",
+    "최상",
+    "압도적",
+    "완벽",
+    "100%",
+    "반드시",
+    "확실",
+    "독보적",
+]
+
+
+def evidence_text_blob(document_insights: dict[str, Any] | None) -> str:
+    document_insights = document_insights or {}
+    parts = [document_insights.get("combinedText", "")]
+    understanding = document_insights.get("businessUnderstanding") or {}
+    for item in understanding.get("evidenceBank", []) or []:
+        parts.append(item.get("text", ""))
+    for area in (understanding.get("knowledge") or {}).values():
+        parts.append(area.get("synthesized", ""))
+        for evidence in area.get("evidence", []) or []:
+            parts.append(evidence.get("text", ""))
+    for doc in (document_insights.get("businessPlanCorpus") or {}).get("documents", []) or []:
+        parts.append(doc.get("text", ""))
+    return clean_text("\n".join(part for part in parts if part))
+
+
+def sentence_candidates(text: str) -> list[str]:
+    sentences = re.split(r"(?<=[.!?。！？다])\s+", clean_text(text))
+    return [sentence.strip() for sentence in sentences if 12 <= len(sentence.strip()) <= 320]
+
+
+def audit_unsupported_claims(sections: list[dict[str, Any]], document_insights: dict[str, Any] | None) -> dict[str, Any]:
+    source_blob = evidence_text_blob(document_insights)
+    source_numbers = support_numbers(source_blob)
+    claims: list[dict[str, Any]] = []
+    for section in sections:
+        content = clean_text(section.get("content", ""))
+        for number in sorted(support_numbers(content)):
+            if number and number not in source_numbers:
+                sentence = next((item for item in sentence_candidates(content) if number in item.replace(" ", "")), number)
+                claims.append(
+                    {
+                        "sectionId": section.get("id", ""),
+                        "heading": section.get("heading", ""),
+                        "claim": sentence[:260],
+                        "reason": f"본문 숫자 '{number}'가 업로드 원문 근거은행에서 확인되지 않습니다.",
+                        "severity": "high",
+                    }
+                )
+        for phrase in RISKY_CLAIM_PHRASES:
+            if phrase in content and phrase not in source_blob:
+                sentence = next((item for item in sentence_candidates(content) if phrase in item), phrase)
+                claims.append(
+                    {
+                        "sectionId": section.get("id", ""),
+                        "heading": section.get("heading", ""),
+                        "claim": sentence[:260],
+                        "reason": f"'{phrase}' 표현은 심사에서 근거 요구 가능성이 높습니다.",
+                        "severity": "medium",
+                    }
+                )
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for claim in claims:
+        marker = (claim.get("sectionId", ""), claim.get("claim", ""), claim.get("reason", ""))
+        if marker in seen:
+            continue
+        seen.add(marker)
+        deduped.append(claim)
+    high = sum(1 for item in deduped if item.get("severity") == "high")
+    medium = sum(1 for item in deduped if item.get("severity") == "medium")
+    return {
+        "status": "ok" if not high and medium <= 2 else "needs_work",
+        "totalClaims": len(deduped),
+        "highRiskClaims": high,
+        "mediumRiskClaims": medium,
+        "claims": deduped[:20],
+    }
+
+
+def attach_grounding_audit(plan: dict[str, Any], document_insights: dict[str, Any] | None) -> dict[str, Any]:
+    output = json.loads(json.dumps(plan, ensure_ascii=False))
+    sections = output.get("sections") or []
+    traceability = build_evidence_traceability(sections, document_insights)
+    unsupported = audit_unsupported_claims(sections, document_insights)
+    output["evidenceTraceability"] = traceability
+    output["unsupportedClaimAudit"] = unsupported
+    quality = [
+        item
+        for item in output.get("qualityChecks", [])
+        if item.get("label") not in {"원문 근거 추적성", "근거 없는 주장 점검"}
+    ]
+    quality.append(
+        {
+            "label": "원문 근거 추적성",
+            "status": "ok" if traceability.get("status") == "ok" else "needs_work",
+            "message": (
+                f"{traceability.get('groundedSections', 0)}개 문항은 원문 근거가 충분히 연결됐고 "
+                f"{traceability.get('needsGroundingSections', 0)}개 문항은 추가 근거 반영이 필요합니다. "
+                f"평균 근거점수 {traceability.get('averageSupportScore', 0)}점."
+            ),
+        }
+    )
+    quality.append(
+        {
+            "label": "근거 없는 주장 점검",
+            "status": "ok" if unsupported.get("status") == "ok" else "needs_work",
+            "message": (
+                "원문 근거 없이 새로 등장한 고위험 숫자·과장 표현이 없습니다."
+                if unsupported.get("status") == "ok"
+                else f"고위험 {unsupported.get('highRiskClaims', 0)}건, 주의 {unsupported.get('mediumRiskClaims', 0)}건을 확인하세요."
+            ),
+        }
+    )
+    output["qualityChecks"] = quality
+    return output
 
 
 def document_context_lines(category: str, document_insights: dict[str, Any]) -> list[str]:
