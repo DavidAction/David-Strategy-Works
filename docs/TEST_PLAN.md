@@ -8,15 +8,22 @@ Run this first after every meaningful code change:
 
 ```powershell
 python tools\quality_smoke.py
+python tools\benchmark_proposals.py
 ```
 
 The smoke test checks document analysis, grant template analysis, draft generation, comment revision, export files, and HWPX package structure.
+
+The benchmark runner checks deterministic proposal quality against the baseline cases in `benchmarks/proposals/`.
 
 Also confirm:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8765/api/ai/health
+Invoke-RestMethod http://127.0.0.1:8765/api/ai/usage
+python tools\ai_live_check.py --no-live
 ```
+
+After real API keys are configured in `.env`, run `python tools\ai_live_check.py` to call Gemini, GPT, and Claude directly.
 
 ## Document Extraction
 
@@ -25,6 +32,7 @@ Invoke-RestMethod http://127.0.0.1:8765/api/ai/health
 3. Upload a text PDF and confirm paragraphs and tables are extracted.
 4. Upload a scanned PDF or image after installing Tesseract/Poppler and confirm OCR notes are shown.
 5. Confirm each document shows remediation actions when extraction is weak.
+6. Run `python tools\ocr_check.py` and confirm Tesseract, Poppler, and OCR language settings are reported correctly.
 
 ## Draft Generation
 
@@ -49,7 +57,10 @@ Invoke-RestMethod http://127.0.0.1:8765/api/ai/health
 3. Open the HWPX in Hancom Office or compatible viewer.
 4. If an original template was uploaded, confirm the template preservation package includes the original file and mapping JSON.
 5. Confirm SVG visual assets and visual manifest are exported.
-6. If an original HWPX template was uploaded, confirm the submission fidelity report and filled-template review file are exported.
+6. Confirm generated HWPX files include visual SVG media under `Contents/Media/` when visual assets exist.
+7. If an original HWPX template was uploaded, run `python tools\hwpx_template_probe.py path\to\template.hwpx` and confirm the submission fidelity report and filled-template review file are exported.
+8. If the source HWPX contains `{{answer_1}}`, `{q1}`, `[답변1]`, or `__ANSWER_1__`, confirm the filled-template review file replaces the placeholder in place.
+9. Set `DSW_BLOCK_UNSAFE_EXPORT=true` and confirm unresolved high-risk evidence gaps block export with visible blocker messages.
 
 ## Handoff
 
@@ -57,3 +68,4 @@ Invoke-RestMethod http://127.0.0.1:8765/api/ai/health
 2. Copy `.env`, `data/`, and `exports/` privately if needed.
 3. Run `start-dsw.ps1` or `python server.py --port 8765`.
 4. Confirm `http://127.0.0.1:8765/api/health` returns `ok`.
+5. If `DSW_WORKSPACE_PASSWORD` is set, confirm the browser asks for the password before profile, version, AI, or export access.

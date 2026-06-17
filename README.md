@@ -48,8 +48,9 @@ Windows에서는 더 쉽게 실행할 수 있습니다.
 - 시각자료 설계: 표, 인포그래픽, 이미지 생성 브리프를 초안과 검토 화면에 배치
 - 심사/운영 리포트: HWPX 양식 기입 매핑, 심사위원 예상 질문, 탈락 리스크, 보안 점검, 워크스페이스 관리 리포트 표시
 - 고도화 리포트: 제출 양식 충실도, 근거 잠금, 컨설턴트 최종 리뷰, AI 비용 추정, 민감문서 전송 정책 표시
-- 내보내기 고도화: 표·인포그래픽 SVG, 시각자료 매니페스트, HWPX 충실도 리포트, 원본 HWPX 검토용 삽입본 생성
-- AI 운영 점검: `/api/ai/health`에서 모델 배정과 API 키 준비 상태 확인
+- 내보내기 고도화: 표·인포그래픽 SVG, 시각자료 매니페스트, HWPX 내부 SVG 첨부, HWPX 충실도 리포트, 원본 HWPX placeholder 직접 치환 검토본 생성
+- 제출 안전장치: `DSW_BLOCK_UNSAFE_EXPORT=true`이면 근거 부족·고위험 주장·민감문서 AI 전송 확인 누락 시 export 차단
+- AI 운영 점검: `/api/ai/health`에서 모델 배정과 API 키 준비 상태 확인, `/api/ai/usage`에서 실제 호출 토큰·비용 로그 확인
 - 내보내기: `.hwpx`, 검토용 `.html`, 초안 `.json`, 원본 양식·답변 매핑 패키지
 - 글꼴: `static/fonts/PretendardVariable.woff2`를 번들링하고 웹앱·HTML·HWPX에서 Pretendard Variable 우선 사용
 
@@ -65,6 +66,18 @@ API 키가 있으면 단계별로 멀티 모델을 사용하도록 설계되어 
 - 이미지 생성 브리프: Google `gemini-3-pro-image`, fallback OpenAI `gpt-image-2`
 
 환경 변수는 `.env.example`을 참고하세요.
+
+## 운영 검증 명령
+
+```powershell
+python tools\quality_smoke.py
+python tools\benchmark_proposals.py
+python tools\ai_live_check.py --no-live
+python tools\ocr_check.py
+python tools\hwpx_template_probe.py
+```
+
+실제 API 키를 `.env`에 넣은 뒤에는 `python tools\ai_live_check.py`로 Gemini/GPT/Claude 연결을 확인합니다. 정부 HWPX 양식 파일을 받은 경우 `python tools\hwpx_template_probe.py path\to\template.hwpx`로 표·셀·placeholder 구조를 먼저 진단하세요.
 
 ## GitHub 업로드 주의
 
@@ -82,11 +95,10 @@ python tools\quality_smoke.py
 
 ## 다음 제품화 과제
 
-- 정부 HWPX 양식의 표/셀 단위 자동 기입
-- 실제 Gemini/GPT/Claude API 키 기반 통합 테스트
-- OCR 설치 가이드와 어댑터 테스트
-- 사용자 로그인과 워크스페이스 분리
-- AI 단계별 비용 추적
+- 실제 지원사업별 HWPX 양식 샘플을 누적해 placeholder 없는 표/셀 자동 매칭 정확도 개선
+- 사용자별 로그인, 암호화 저장소, 팀 권한 분리
+- 실제 합격/탈락 사업계획서 데이터셋 기반 평가 루브릭 보강
+- 한컴 버전별 HWPX 본문 이미지 객체 삽입 호환성 검증
 
 ## Comment Revision Workflow
 

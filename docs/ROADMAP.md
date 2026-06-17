@@ -28,16 +28,20 @@
 - Deterministic SVG rendering for proposal tables and infographics
 - AI model health endpoint and estimated cost ledger
 - Secure external-AI transfer policy report
+- Live AI connectivity CLI and API usage ledger
+- Proposal benchmark runner with a baseline sample case
+- HWPX template probe for government form samples
+- Placeholder-based HWPX answer fill into uploaded original forms
+- Optional hard export blocking for unresolved evidence/security gaps
+- Workspace password protection for profiles, versions, AI operations, and exports
+- OCR adapter verification CLI
+- HWPX package-level SVG visual asset attachment
 
 ## Next Production Steps
 
-- Real API-key integration test with Gemini/GPT/Claude
-- Full HWPX table/cell-level insertion for every government form variant
-- Hard export blocking for unresolved high-risk evidence gaps
-- Generated visual asset insertion directly into HWPX body
-- OCR installation guide and adapter tests
-- Secure data handling policy for company legal/financial documents
-- Login/workspace separation
-- Actual provider billing reconciliation per AI stage
+- Collect real government HWPX samples and add them to the private benchmark library
+- Full table/cell semantic insertion for forms that do not expose placeholders
+- Generated visual asset insertion as visible HWPX drawing objects across Hancom versions
+- User login, encrypted local workspace, and team permission separation
+- Provider billing reconciliation against invoices per AI stage
 - Evaluation dataset with real accepted/rejected proposal examples
-- Password/encrypted local workspace option

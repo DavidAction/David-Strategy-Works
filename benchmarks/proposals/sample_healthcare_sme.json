@@ -1,0 +1,180 @@
+{
+  "name": "sample_healthcare_sme",
+  "company": {
+    "basic": {
+      "name": "Sample Care Labs",
+      "industry": "디지털 헬스케어",
+      "stage": "초기 매출 검증",
+      "founded": "2025-03"
+    },
+    "business": {
+      "oneLine": "지역 의원을 위한 만성질환 사후관리 자동화 SaaS",
+      "targetCustomer": "고혈압·당뇨 환자를 정기 관리하는 1차 의료기관 원장과 간호 코디네이터",
+      "product": "환자 문진, 복약 알림, 위험도 분류, 재방문 리포트를 하나로 묶은 웹 기반 관리 콘솔",
+      "problem": "지역 의원의 만성질환 사후관리 데이터가 흩어져 환자 이탈과 관리 공백이 발생한다.",
+      "solution": "문진, 복약, 생활습관 데이터를 통합해 의원이 환자별 관리 우선순위를 확인하는 SaaS를 제공한다.",
+      "differentiation": "EMR 교체 없이 CSV/API 연동으로 시작할 수 있고, 의원 운영자가 바로 쓰는 위험도 큐와 상담 스크립트를 제공한다.",
+      "revenueModel": "의원당 월 구독료 19만원과 환자 관리 모듈 사용량 기반 과금",
+      "customers": "만성질환 환자를 관리하는 1차 의료기관",
+      "traction": "파일럿 의원 3곳, 월간 환자 관리 대상 420명, 재방문 알림 응답률 38%",
+      "stage": "MVP 파일럿 완료 후 유료 전환 검증"
+    },
+    "market": {
+      "marketSize": "국내 1차 의료기관 약 3만 곳 중 만성질환 관리 수요가 높은 내과·가정의학과를 초기 시장으로 설정한다.",
+      "trend": "고령화와 만성질환 관리 수가 확대 흐름으로 의원의 비대면 사후관리 수요가 증가한다.",
+      "competitors": "EMR 부가 모듈, 문자 발송 솔루션, 범용 CRM이 있으나 환자 위험도 기반 관리 큐가 약하다.",
+      "goToMarket": "지역 의사회 세미나, EMR 연동 파트너, 의원별 4주 파일럿으로 전환한다."
+    },
+    "traction": {
+      "customers": "파일럿 의원 3곳",
+      "partnerships": "지역 EMR 리셀러 1곳과 공동 파일럿 논의",
+      "metrics": "월간 관리 환자 420명, 재방문 알림 응답률 38%, 파일럿 재사용 의향 2/3곳",
+      "pilotResults": "파일럿 4주 동안 고위험 환자 상담 우선순위 분류 시간을 35% 줄였다."
+    },
+    "finance": {
+      "salesPlan": "2026년 유료 의원 30곳, 월 구독료 19만원 기준 ARR 6,840만원을 목표로 한다.",
+      "useOfFunds": "지원금은 EMR 연동 개발 45%, 보안·개인정보 영향평가 25%, 파일럿 운영 20%, 영업자료 제작 10%에 사용한다.",
+      "milestones": "2026년 3분기 EMR 연동, 4분기 유료 의원 10곳, 2027년 상반기 30곳 확장",
+      "fundingNeed": "사업화 검증과 보안 인증 준비를 위해 8,000만원 규모의 자금이 필요하다.",
+      "costPlan": "개발 인건비 3,600만원, 보안 컨설팅 2,000만원, 파일럿 운영 1,600만원, 마케팅 800만원"
+    },
+    "team": {
+      "founder": "대표는 병원 업무 자동화 SaaS PM 6년 경험을 보유한다.",
+      "members": "백엔드 개발자, 의료데이터 기획자, 병의원 세일즈 담당으로 구성된다.",
+      "advisors": "가정의학과 전문의와 개인정보보호 자문 변호사가 월 1회 리뷰한다."
+    },
+    "legal": {
+      "businessNumber": "000-00-00000",
+      "corporateNumber": "000000-0000000"
+    },
+    "strategy": {
+      "goToMarket": "지역 의사회 세미나, EMR 연동 파트너, 의원별 4주 파일럿으로 전환한다.",
+      "revenueModel": "의원당 월 구독료와 환자 관리 모듈 사용량 기반 과금",
+      "roadmap": "2026년 EMR 연동, 2027년 보험 청구 보조 리포트, 2028년 광역 네트워크 확장"
+    }
+  },
+  "template": {
+    "title": "창업기업 사업화 지원사업 사업계획서",
+    "questions": [
+      {
+        "prompt": "문제 인식 및 사업 필요성"
+      },
+      {
+        "prompt": "제품/서비스의 차별성"
+      },
+      {
+        "prompt": "시장 진입 전략"
+      },
+      {
+        "prompt": "사업화 추진계획과 기대효과"
+      }
+    ],
+    "requirements": [
+      {
+        "value": "총 5페이지 이내, 정량성과 포함"
+      }
+    ]
+  },
+  "options": {
+    "pageLimit": "5페이지",
+    "templateGuidance": {
+      "pageCount": "5",
+      "structure": "문제-해결-시장-실행-성과",
+      "focusPoints": "정량 지표, 의료기관 적용 가능성, 확장성",
+      "strictFormat": true
+    },
+    "additionalNotes": "심사위원이 바로 이해할 수 있도록 기존 의원 업무 흐름과 도입 효과를 구체화한다."
+    ,
+    "documentInsights": {
+      "combinedText": "Sample Care Labs는 고혈압·당뇨 환자를 정기 관리하는 1차 의료기관을 위한 디지털 헬스케어 SaaS다. 파일럿 의원 3곳에서 월간 관리 환자 420명을 대상으로 운영했고 재방문 알림 응답률은 38%였다. 파일럿 4주 동안 고위험 환자 상담 우선순위 분류 시간을 35% 줄였다. 2026년 유료 의원 30곳, 월 구독료 19만원 기준 ARR 6,840만원을 목표로 한다. 2026년 3분기 EMR 연동, 4분기 유료 의원 10곳, 2027년 상반기 30곳 확장, 2028년 광역 네트워크 확장을 추진한다. 사업화 검증과 보안 인증 준비를 위해 8,000만원이 필요하며 개발 3,600만원, 보안 2,000만원, 파일럿 1,600만원, 마케팅 800만원으로 배정한다.",
+      "documents": [
+        {
+          "filename": "sample-business-plan.txt",
+          "documentType": "business_plan",
+          "extractedCharacters": 520,
+          "facts": [
+            {
+              "key": "traction.metrics",
+              "label": "파일럿 지표",
+              "value": "파일럿 의원 3곳, 월간 관리 환자 420명, 재방문 알림 응답률 38%",
+              "source": "샘플 사업계획서"
+            },
+            {
+              "key": "finance.salesPlan",
+              "label": "매출 계획",
+              "value": "2026년 유료 의원 30곳, ARR 6,840만원",
+              "source": "샘플 사업계획서"
+            }
+          ],
+          "evidenceSnippets": [
+            {
+              "category": "traction",
+              "categoryLabel": "성과",
+              "text": "파일럿 의원 3곳에서 월간 관리 환자 420명, 재방문 알림 응답률 38%를 확인했다."
+            },
+            {
+              "category": "finance",
+              "categoryLabel": "재무",
+              "text": "2026년 유료 의원 30곳, 월 구독료 19만원 기준 ARR 6,840만원을 목표로 한다."
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "key": "traction.metrics",
+          "label": "파일럿 지표",
+          "value": "3곳, 420명, 38%, 35%",
+          "source": "샘플 사업계획서"
+        },
+        {
+          "key": "finance.salesPlan",
+          "label": "매출 계획",
+          "value": "30곳, 19만원, 6,840만원",
+          "source": "샘플 사업계획서"
+        }
+      ],
+      "businessUnderstanding": {
+        "evidenceBank": [
+          {
+            "area": "problem",
+            "areaLabel": "문제",
+            "source": "샘플 사업계획서",
+            "text": "지역 의원의 만성질환 사후관리 데이터가 흩어져 환자 이탈과 관리 공백이 발생한다."
+          },
+          {
+            "area": "solution",
+            "areaLabel": "솔루션",
+            "source": "샘플 사업계획서",
+            "text": "문진, 복약, 생활습관 데이터를 통합해 의원이 환자별 관리 우선순위를 확인하는 SaaS를 제공한다."
+          },
+          {
+            "area": "traction",
+            "areaLabel": "성과",
+            "source": "샘플 사업계획서",
+            "text": "파일럿 의원 3곳, 월간 관리 환자 420명, 재방문 알림 응답률 38%, 상담 우선순위 분류 시간 35% 감소."
+          },
+          {
+            "area": "business_model",
+            "areaLabel": "사업모델",
+            "source": "샘플 사업계획서",
+            "text": "수익모델은 의원당 월 구독료 19만원과 환자 관리 모듈 사용량 기반 과금이다. 초기 매출은 2026년 유료 의원 30곳, ARR 6,840만원을 목표로 하고 지역 의사회 세미나, EMR 연동 파트너, 의원별 4주 파일럿으로 유료 전환을 진행한다."
+          },
+          {
+            "area": "budget",
+            "areaLabel": "예산",
+            "source": "샘플 사업계획서",
+            "text": "지원금은 개발 3,600만원, 보안 컨설팅 2,000만원, 파일럿 운영 1,600만원, 마케팅 800만원에 사용한다."
+          }
+        ]
+      }
+    }
+  },
+  "expected": {
+    "minScore": 70,
+    "requiredPhrases": [
+      "Sample Care Labs",
+      "디지털 헬스케어"
+    ]
+  }
+}

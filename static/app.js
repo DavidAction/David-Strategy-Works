@@ -210,15 +210,64 @@ function setStatus(message) {
 }
 
 async function api(path, options = {}) {
+  const workspacePassword = localStorage.getItem("dswWorkspacePassword") || "";
+  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  if (workspacePassword) headers["X-DSW-Workspace-Password"] = workspacePassword;
   const response = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers,
   });
-  const data = await response.json();
+  let data = {};
+  try {
+    data = await response.json();
+  } catch {
+    data = {};
+  }
+  if (response.status === 401 && data.code === "workspace_password_required") {
+    const password = window.prompt("워크스페이스 비밀번호를 입력하세요.");
+    if (password) {
+      localStorage.setItem("dswWorkspacePassword", password);
+      return api(path, options);
+    }
+  }
   if (!response.ok) {
     throw new Error(data.error || "요청 처리 중 오류가 발생했습니다.");
   }
   return data;
+}
+
+async function downloadUrl(url) {
+  const workspacePassword = localStorage.getItem("dswWorkspacePassword") || "";
+  const headers = workspacePassword ? { "X-DSW-Workspace-Password": workspacePassword } : {};
+  const response = await fetch(url, { headers });
+  if (response.status === 401) {
+    const password = window.prompt("워크스페이스 비밀번호를 입력하세요.");
+    if (password) {
+      localStorage.setItem("dswWorkspacePassword", password);
+      return downloadUrl(url);
+    }
+  }
+  if (!response.ok) throw new Error("파일을 다운로드할 수 없습니다.");
+  const blob = await response.blob();
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = decodeURIComponent(url.split("/").pop() || "download");
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(link.href);
+}
+
+function bindDownloadButtons(root = document) {
+  root.querySelectorAll("[data-download-url]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        await downloadUrl(button.dataset.downloadUrl);
+      } catch (error) {
+        setStatus(error.message || "파일 다운로드 중 오류가 발생했습니다.");
+      }
+    });
+  });
 }
 
 function clone(value) {
@@ -1452,7 +1501,7 @@ async function exportPlan() {
   });
   renderExports(result);
   activatePanel("export");
-  setStatus("파일 생성 완료");
+  setStatus(result.blocked ? "근거 보완 필요: export가 차단되었습니다." : "파일 생성 완료");
 }
 
 function renderExports(result) {
@@ -1460,6 +1509,21 @@ function renderExports(result) {
   if (!result) {
     root.className = "export-list empty-state";
     root.textContent = "생성된 파일이 없습니다.";
+    return;
+  }
+  if (result.blocked) {
+    root.className = "export-list blocked";
+    root.innerHTML = `
+      <article class="export-item export-blocked">
+        <div>
+          <strong>제출 전 보완이 필요합니다</strong>
+          <p class="micro">${escapeHtml(result.error || "근거 또는 보안 검증을 통과하지 못했습니다.")}</p>
+          <ul class="compact-list">
+            ${(result.blockers || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+          </ul>
+        </div>
+      </article>
+    `;
     return;
   }
   root.className = "export-list";
@@ -1471,11 +1535,12 @@ function renderExports(result) {
             <strong>${escapeHtml(exportLabel(file))}</strong>
             <p class="micro">${escapeHtml(file.filename)}</p>
           </div>
-          <a href="${escapeAttr(file.url)}" download>다운로드</a>
+          <button class="download-btn" type="button" data-download-url="${escapeAttr(file.url)}">다운로드</button>
         </article>
       `
     )
     .join("");
+  bindDownloadButtons(root);
 }
 
 function exportLabel(file) {
@@ -1563,7 +1628,7 @@ function renderVersionList() {
       const files = state.versionExports[version.id]?.files || [];
       const fileLinks = files.length
         ? `<div class="version-files">${files
-            .map((file) => `<a href="${escapeAttr(file.url)}" download>${escapeHtml(exportLabel(file))}</a>`)
+            .map((file) => `<button type="button" data-download-url="${escapeAttr(file.url)}">${escapeHtml(exportLabel(file))}</button>`)
             .join("")}</div>`
         : "";
       return `
@@ -1589,6 +1654,7 @@ function renderVersionList() {
   root.querySelectorAll("[data-version-export]").forEach((button) => {
     button.addEventListener("click", () => exportDraftVersion(button.dataset.versionExport));
   });
+  bindDownloadButtons(root);
 }
 
 async function saveDraftVersion() {
@@ -1724,12 +1790,26 @@ async function exportDraftVersion(versionIdArg = "") {
   state.versionExports[versionId] = result;
   renderVersionList();
   renderVersionExportResults(result);
-  setStatus("선택 버전 다운로드 파일 생성 완료");
+  setStatus(result.blocked ? "근거 보완 필요: 선택 버전 export가 차단되었습니다." : "선택 버전 다운로드 파일 생성 완료");
 }
 
 function renderVersionExportResults(result) {
   const root = qs("#versionExportResults");
   if (!root || !result) return;
+  if (result.blocked) {
+    root.innerHTML = `
+      <article class="export-item export-blocked">
+        <div>
+          <strong>선택 버전 제출 전 보완이 필요합니다</strong>
+          <p class="micro">${escapeHtml(result.error || "근거 또는 보안 검증을 통과하지 못했습니다.")}</p>
+          <ul class="compact-list">
+            ${(result.blockers || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+          </ul>
+        </div>
+      </article>
+    `;
+    return;
+  }
   root.innerHTML = (result.files || [])
     .map(
       (file) => `
@@ -1738,11 +1818,12 @@ function renderVersionExportResults(result) {
             <strong>${escapeHtml(exportLabel(file))}</strong>
             <p class="micro">${escapeHtml(result.version?.label || "")} · ${escapeHtml(file.filename)}</p>
           </div>
-          <a href="${escapeAttr(file.url)}" download>다운로드</a>
+          <button class="download-btn" type="button" data-download-url="${escapeAttr(file.url)}">다운로드</button>
         </article>
       `
     )
     .join("");
+  bindDownloadButtons(root);
 }
 
 function syncDraftTextareas() {

@@ -36,6 +36,7 @@ COMPANY_FILE = DATA_DIR / "company.json"
 PROFILES_FILE = DATA_DIR / "profiles.json"
 GRANT_DATASET_FILE = DATASET_DIR / "grant_success_criteria.json"
 LOG_FILE = ROOT / "server.log"
+AI_USAGE_FILE = DATA_DIR / "ai_usage.jsonl"
 
 
 AI_MODEL_ASSIGNMENTS: dict[str, Any] = {
@@ -885,6 +886,14 @@ def gemini_api_key() -> str:
     return os.environ.get("GEMINI_API_KEY", "").strip() or os.environ.get("GOOGLE_API_KEY", "").strip()
 
 
+def workspace_password() -> str:
+    return os.environ.get("DSW_WORKSPACE_PASSWORD", "").strip()
+
+
+def export_blocking_enabled() -> bool:
+    return os.environ.get("DSW_BLOCK_UNSAFE_EXPORT", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def provider_status() -> dict[str, Any]:
     return {
         "openai": {"configured": bool(openai_api_key()), "env": "OPENAI_API_KEY"},
@@ -956,6 +965,11 @@ def ai_settings_payload() -> dict[str, Any]:
         "apiKeyEnv": "OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY",
         "providers": providers,
         "health": ai_provider_health(False),
+        "usage": read_ai_usage_summary(50),
+        "workspaceSecurity": {
+            "passwordEnabled": bool(workspace_password()),
+            "blockUnsafeExport": export_blocking_enabled(),
+        },
         "assignments": json.loads(json.dumps(AI_MODEL_ASSIGNMENTS, ensure_ascii=False)),
         "recommendation": (
             "역할별 최적 배치로 설정했습니다. 한글 보고서 1차 초안은 Gemini 3.5 Flash, "
@@ -2991,7 +3005,9 @@ def openai_responses_create(payload: dict[str, Any], timeout: int = 90) -> dict[
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
+            result = json.loads(response.read().decode("utf-8"))
+            record_ai_usage("openai", str(payload.get("model", "")), result, str(payload.get("stage", "")))
+            return result
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:1000]
         raise RuntimeError(f"OpenAI API HTTP {exc.code}: {detail}") from exc
@@ -3016,7 +3032,9 @@ def gemini_generate_content(model: str, prompt: str, schema: dict[str, Any] | No
     request = urllib.request.Request(url, data=body, method="POST", headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
+            result = json.loads(response.read().decode("utf-8"))
+            record_ai_usage("google", model, result, "gemini_generate_content")
+            return result
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:1000]
         raise RuntimeError(f"Gemini API HTTP {exc.code}: {detail}") from exc
@@ -3049,7 +3067,9 @@ def anthropic_messages_create(payload: dict[str, Any], timeout: int = 90) -> dic
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
+            result = json.loads(response.read().decode("utf-8"))
+            record_ai_usage("anthropic", str(payload.get("model", "")), result, str(payload.get("stage", "")))
+            return result
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:1000]
         raise RuntimeError(f"Claude API HTTP {exc.code}: {detail}") from exc
@@ -3756,6 +3776,12 @@ def sentence_candidates(text: str) -> list[str]:
     return [sentence.strip() for sentence in sentences if 12 <= len(sentence.strip()) <= 320]
 
 
+def contains_risky_claim_phrase(text: str, phrase: str) -> bool:
+    if phrase == "확실":
+        return bool(re.search(r"(?<!불)확실(?!성)", text))
+    return phrase in text
+
+
 def audit_unsupported_claims(sections: list[dict[str, Any]], document_insights: dict[str, Any] | None) -> dict[str, Any]:
     source_blob = evidence_text_blob(document_insights)
     source_numbers = support_numbers(source_blob)
@@ -3775,7 +3801,7 @@ def audit_unsupported_claims(sections: list[dict[str, Any]], document_insights: 
                     }
                 )
         for phrase in RISKY_CLAIM_PHRASES:
-            if phrase in content and phrase not in source_blob:
+            if contains_risky_claim_phrase(content, phrase) and not contains_risky_claim_phrase(source_blob, phrase):
                 sentence = next((item for item in sentence_candidates(content) if phrase in item), phrase)
                 claims.append(
                     {
@@ -3935,6 +3961,68 @@ def model_price_lookup() -> dict[str, tuple[float, float]]:
         model = item.get("model", "")
         prices[model] = (parse_price_per_mtok(item.get("inputPerMTok", "0")), parse_price_per_mtok(item.get("outputPerMTok", "0")))
     return prices
+
+
+def extract_usage_tokens(provider: str, response: dict[str, Any]) -> dict[str, int]:
+    if provider == "openai":
+        usage = response.get("usage") or {}
+        return {
+            "inputTokens": int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0),
+            "outputTokens": int(usage.get("output_tokens") or usage.get("completion_tokens") or 0),
+            "totalTokens": int(usage.get("total_tokens") or 0),
+        }
+    if provider == "google":
+        usage = response.get("usageMetadata") or {}
+        return {
+            "inputTokens": int(usage.get("promptTokenCount") or 0),
+            "outputTokens": int(usage.get("candidatesTokenCount") or 0),
+            "totalTokens": int(usage.get("totalTokenCount") or 0),
+        }
+    if provider == "anthropic":
+        usage = response.get("usage") or {}
+        input_tokens = int(usage.get("input_tokens") or 0)
+        output_tokens = int(usage.get("output_tokens") or 0)
+        return {"inputTokens": input_tokens, "outputTokens": output_tokens, "totalTokens": input_tokens + output_tokens}
+    return {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
+
+
+def record_ai_usage(provider: str, model: str, response: dict[str, Any], stage: str = "") -> None:
+    tokens = extract_usage_tokens(provider, response)
+    if not any(tokens.values()):
+        return
+    input_price, output_price = model_price_lookup().get(model, (0.0, 0.0))
+    estimated_cost = (tokens["inputTokens"] / 1_000_000 * input_price) + (tokens["outputTokens"] / 1_000_000 * output_price)
+    entry = {
+        "createdAt": dt.datetime.now().isoformat(timespec="seconds"),
+        "provider": provider,
+        "model": model,
+        "stage": stage,
+        **tokens,
+        "estimatedUsd": round(estimated_cost, 6),
+    }
+    try:
+        ensure_dirs()
+        with AI_USAGE_FILE.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        log_line(f"AI usage ledger write failed: {exc}")
+
+
+def read_ai_usage_summary(limit: int = 200) -> dict[str, Any]:
+    if not AI_USAGE_FILE.exists():
+        return {"entries": [], "totalEstimatedUsd": 0, "totalTokens": 0}
+    entries: list[dict[str, Any]] = []
+    try:
+        for line in AI_USAGE_FILE.read_text(encoding="utf-8").splitlines()[-limit:]:
+            if line.strip():
+                entries.append(json.loads(line))
+    except Exception:
+        entries = []
+    return {
+        "entries": entries,
+        "totalEstimatedUsd": round(sum(float(item.get("estimatedUsd") or 0) for item in entries), 6),
+        "totalTokens": sum(int(item.get("totalTokens") or 0) for item in entries),
+    }
 
 
 def estimate_tokens(text: str) -> int:
@@ -5430,8 +5518,51 @@ def paragraph_xml(text: str, style: str, pid: int) -> str:
     )
 
 
+def hwpx_visual_media_assets(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    visual_assets = plan.get("visualAssets") or {}
+    media: list[dict[str, Any]] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_dir = Path(tmp)
+        for table in (visual_assets.get("tables") or [])[:4]:
+            asset_id = safe_filename(table.get("id") or table.get("title") or "table", "table")
+            filename = f"visual-table-{len(media) + 1}-{asset_id}.svg"
+            path = tmp_dir / filename
+            render_table_svg(table, path)
+            media.append(
+                {
+                    "id": f"visual{len(media) + 1}",
+                    "href": f"Media/{filename}",
+                    "archivePath": f"Contents/Media/{filename}",
+                    "title": table.get("title", "표"),
+                    "type": "table",
+                    "data": path.read_bytes(),
+                }
+            )
+        for graphic in (visual_assets.get("infographics") or [])[:4]:
+            asset_id = safe_filename(graphic.get("id") or graphic.get("title") or "infographic", "infographic")
+            filename = f"visual-infographic-{len(media) + 1}-{asset_id}.svg"
+            path = tmp_dir / filename
+            render_flow_svg(graphic, path)
+            media.append(
+                {
+                    "id": f"visual{len(media) + 1}",
+                    "href": f"Media/{filename}",
+                    "archivePath": f"Contents/Media/{filename}",
+                    "title": graphic.get("title", "인포그래픽"),
+                    "type": "infographic",
+                    "data": path.read_bytes(),
+                }
+            )
+    return media
+
+
 def create_hwpx(plan: dict[str, Any], output_path: Path) -> None:
+    visual_media = hwpx_visual_media_assets(plan)
     paragraphs = plan_to_paragraphs(plan)
+    if visual_media:
+        paragraphs.append(("heading", "시각자료 첨부 매니페스트"))
+        for asset in visual_media:
+            paragraphs.append(("note", f"{asset['title']} ({asset['type']}) - HWPX 패키지 {asset['archivePath']}에 SVG 원본을 포함했습니다."))
     section_body = "\n".join(paragraph_xml(text, kind, index) for index, (kind, text) in enumerate(paragraphs, start=1))
     section_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <hp:sec xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head">
@@ -5483,13 +5614,18 @@ def create_hwpx(plan: dict[str, Any], output_path: Path) -> None:
   <hh:docOption/>
 </hh:head>
 '''
-    content_hpf = '''<?xml version="1.0" encoding="UTF-8"?>
+    visual_manifest = "\n".join(
+        f'    <opf:item id="{xml_escape(asset["id"])}" href="{xml_escape(asset["href"])}" media-type="image/svg+xml"/>'
+        for asset in visual_media
+    )
+    content_hpf = f'''<?xml version="1.0" encoding="UTF-8"?>
 <opf:package xmlns:opf="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
   <opf:metadata><opf:title>사업계획서</opf:title><opf:language>ko</opf:language></opf:metadata>
   <opf:manifest>
     <opf:item id="header" href="header.xml" media-type="application/xml"/>
     <opf:item id="section0" href="section0.xml" media-type="application/xml"/>
     <opf:item id="pretendard-variable" href="Fonts/PretendardVariable.woff2" media-type="font/woff2"/>
+{visual_manifest}
   </opf:manifest>
   <opf:spine><opf:itemref idref="section0"/></opf:spine>
 </opf:package>
@@ -5508,6 +5644,8 @@ def create_hwpx(plan: dict[str, Any], output_path: Path) -> None:
         archive.writestr("Contents/content.hpf", content_hpf, compress_type=zipfile.ZIP_DEFLATED)
         archive.writestr("Contents/header.xml", header_xml, compress_type=zipfile.ZIP_DEFLATED)
         archive.writestr("Contents/section0.xml", section_xml, compress_type=zipfile.ZIP_DEFLATED)
+        for asset in visual_media:
+            archive.writestr(asset["archivePath"], asset["data"], compress_type=zipfile.ZIP_DEFLATED)
         font_path = STATIC_DIR / "fonts" / "PretendardVariable.woff2"
         if font_path.exists():
             archive.write(font_path, "Contents/Fonts/PretendardVariable.woff2", compress_type=zipfile.ZIP_DEFLATED)
@@ -5616,6 +5754,85 @@ def create_visual_asset_files(plan: dict[str, Any], base: str) -> list[dict[str,
     return files
 
 
+def placeholder_key_variants(value: str) -> set[str]:
+    cleaned = clean_text(value)
+    if not cleaned:
+        return set()
+    slug = re.sub(r"[^0-9A-Za-z가-힣_]+", "_", cleaned).strip("_")
+    variants = {cleaned}
+    if slug:
+        variants.add(slug)
+        variants.add(slug.lower())
+        variants.add(slug.upper())
+    return variants
+
+
+def hwpx_answer_replacements(plan: dict[str, Any]) -> list[tuple[str, str]]:
+    sections = plan.get("sections") or []
+    rows = (plan.get("templateFillManifest") or {}).get("rows") or []
+    replacements: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for index, section in enumerate(sections, start=1):
+        row = rows[index - 1] if index - 1 < len(rows) else {}
+        value = clean_text(section.get("content", ""))
+        if not value:
+            continue
+        keys: set[str] = {
+            f"answer_{index}",
+            f"answer{index}",
+            f"q{index}",
+            f"question_{index}",
+            f"section_{index}",
+            f"답변{index}",
+            f"답변 {index}",
+            f"내용{index}",
+            f"내용 {index}",
+            f"작성{index}",
+            f"작성 {index}",
+        }
+        keys.update(placeholder_key_variants(str(section.get("id", ""))))
+        keys.update(placeholder_key_variants(str(row.get("sectionId", ""))))
+        tokens: set[str] = set()
+        for key in keys:
+            if not key:
+                continue
+            tokens.update(
+                {
+                    f"{{{{{key}}}}}",
+                    f"{{{key}}}",
+                    f"[[{key}]]",
+                    f"[{key}]",
+                    f"__{key}__",
+                    f"__{key.upper()}__",
+                }
+            )
+        for token in tokens:
+            if token not in seen:
+                replacements.append((token, value))
+                seen.add(token)
+    return replacements
+
+
+def replace_hwpx_placeholders(xml_text: str, replacements: list[tuple[str, str]]) -> tuple[str, int]:
+    replaced = 0
+    for token, value in replacements:
+        safe_value = xml_escape(value)
+        for needle in {token, xml_escape(token)}:
+            count = xml_text.count(needle)
+            if count:
+                xml_text = xml_text.replace(needle, safe_value)
+                replaced += count
+    return xml_text, replaced
+
+
+def append_hwpx_section_xml(xml_text: str, appendix_xml: str) -> tuple[str, bool]:
+    matches = list(re.finditer(r"</(?:\w+:)?sec\s*>", xml_text))
+    if not matches:
+        return xml_text, False
+    closing_index = matches[-1].start()
+    return xml_text[:closing_index] + appendix_xml + "\n" + xml_text[closing_index:], True
+
+
 def create_filled_template_attempt(plan: dict[str, Any], source_path: Path, base: str) -> tuple[Path | None, dict[str, Any]]:
     if source_path.suffix.lower() != ".hwpx":
         return None, {"status": "skipped", "message": "원본 양식이 HWPX가 아니어서 삽입 시도본을 생성하지 않았습니다."}
@@ -5628,33 +5845,52 @@ def create_filled_template_attempt(plan: dict[str, Any], source_path: Path, base
         answer_paragraphs.append(("heading", f"{index}. {section.get('heading', '')}"))
         answer_paragraphs.append(("body", section.get("content", "")))
     appendix_xml = "\n".join(paragraph_xml(text, kind, 90000 + index) for index, (kind, text) in enumerate(answer_paragraphs))
-    inserted = False
+    replacements = hwpx_answer_replacements(plan)
+    replacement_count = 0
+    replacement_sections: list[str] = []
+    appendix_inserted = False
     target_section = ""
     try:
-        with zipfile.ZipFile(source_path) as source_zip, zipfile.ZipFile(output_path, "w") as output_zip:
+        entries: list[tuple[zipfile.ZipInfo, bytes, bool]] = []
+        with zipfile.ZipFile(source_path) as source_zip:
             for info in source_zip.infolist():
                 data = source_zip.read(info.filename)
-                if not inserted and info.filename.startswith("Contents/section") and info.filename.lower().endswith(".xml"):
+                is_section_xml = info.filename.startswith("Contents/section") and info.filename.lower().endswith(".xml")
+                if is_section_xml and replacements:
                     text = data.decode("utf-8", errors="replace")
-                    match = re.search(r"</[^>/]*:?sec\s*>", text[::-1])
-                    closing_index = -1
-                    if "</hp:sec>" in text:
-                        closing_index = text.rfind("</hp:sec>")
-                    elif "</sec>" in text:
-                        closing_index = text.rfind("</sec>")
-                    if closing_index >= 0:
-                        text = text[:closing_index] + appendix_xml + "\n" + text[closing_index:]
+                    text, count = replace_hwpx_placeholders(text, replacements)
+                    if count:
+                        replacement_count += count
+                        replacement_sections.append(info.filename)
                         data = text.encode("utf-8")
-                        inserted = True
+                entries.append((info, data, is_section_xml))
+            if not replacement_count:
+                for index, (info, data, is_section_xml) in enumerate(entries):
+                    if not is_section_xml:
+                        continue
+                    text, appendix_inserted = append_hwpx_section_xml(data.decode("utf-8", errors="replace"), appendix_xml)
+                    if appendix_inserted:
+                        entries[index] = (info, text.encode("utf-8"), is_section_xml)
                         target_section = info.filename
+                        break
+        with zipfile.ZipFile(output_path, "w") as output_zip:
+            for info, data, _ in entries:
                 output_zip.writestr(info, data)
     except Exception as exc:
         return None, {"status": "error", "message": f"원본 HWPX 삽입 시도 실패: {exc}"}
+    status = "cell_placeholders_filled" if replacement_count else ("appendix_inserted" if appendix_inserted else "not_inserted")
     return output_path, {
-        "status": "created" if inserted else "not_inserted",
-        "filename": output_path.name if inserted else "",
+        "status": status,
+        "filename": output_path.name if replacement_count or appendix_inserted else "",
         "targetSection": target_section,
-        "message": "원본 HWPX 본문 말미에 검토용 답변 묶음을 삽입했습니다." if inserted else "삽입 가능한 본문 섹션을 찾지 못했습니다.",
+        "placeholderReplacementCount": replacement_count,
+        "replacementSections": replacement_sections,
+        "appendixInserted": appendix_inserted,
+        "message": (
+            f"원본 HWPX placeholder {replacement_count}개를 생성 답변으로 직접 치환했습니다."
+            if replacement_count
+            else ("원본 HWPX 본문 말미에 검토용 답변 묶음을 삽입했습니다." if appendix_inserted else "삽입 가능한 본문 섹션을 찾지 못했습니다.")
+        ),
     }
 
 
@@ -5728,6 +5964,25 @@ def create_template_preservation_files(plan: dict[str, Any], base: str, generate
 
 def create_export(plan: dict[str, Any]) -> dict[str, Any]:
     ensure_dirs()
+    if export_blocking_enabled():
+        evidence_lock = plan.get("evidenceLockReport") or {}
+        unsupported = plan.get("unsupportedClaimAudit") or {}
+        transfer = plan.get("secureTransferPolicy") or {}
+        blockers: list[str] = []
+        if evidence_lock.get("status") == "needs_evidence":
+            blockers.append("근거 잠금 리포트가 needs_evidence 상태입니다.")
+        if int(unsupported.get("highRiskClaims") or 0) > 0:
+            blockers.append("근거 없는 고위험 수치 주장이 남아 있습니다.")
+        if transfer.get("requiresUserConfirmationBeforeAiTransfer"):
+            blockers.append("민감문서 외부 AI 전송 확인이 필요합니다.")
+        if blockers:
+            return {
+                "blocked": True,
+                "error": "안전 export 차단 옵션이 켜져 있어 제출용 파일을 생성하지 않았습니다.",
+                "blockers": blockers,
+                "createdAt": dt.datetime.now().isoformat(timespec="seconds"),
+                "files": [],
+            }
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     digest = hashlib.sha1(json.dumps(plan, ensure_ascii=False).encode("utf-8")).hexdigest()[:8]
     company_slug = re.sub(r"[^0-9A-Za-z가-힣_-]+", "-", plan.get("companyName", "company")).strip("-") or "company"
@@ -5757,11 +6012,32 @@ class BriwellHandler(SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         log_line(format % args)
 
+    def workspace_authorized(self) -> bool:
+        password = workspace_password()
+        if not password:
+            return True
+        provided = self.headers.get("X-DSW-Workspace-Password", "")
+        return provided == password
+
+    def require_workspace_auth(self) -> bool:
+        if self.workspace_authorized():
+            return True
+        self.send_json(
+            {
+                "error": "워크스페이스 비밀번호가 필요합니다.",
+                "code": "workspace_password_required",
+            },
+            status=401,
+        )
+        return False
+
     def end_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-DSW-Workspace-Password")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "same-origin")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         super().end_headers()
 
     def do_OPTIONS(self) -> None:
@@ -5772,6 +6048,15 @@ class BriwellHandler(SimpleHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = urllib.parse.unquote(parsed.path)
         try:
+            protected_get = (
+                path == "/api/company"
+                or path.startswith("/api/profiles")
+                or path.startswith("/api/versions")
+                or path.startswith("/api/ai/")
+                or path.startswith("/exports/")
+            )
+            if protected_get and not self.require_workspace_auth():
+                return
             if path == "/api/health":
                 return self.send_json({"ok": True, "time": dt.datetime.now().isoformat(timespec="seconds")})
             if path == "/api/ai/settings":
@@ -5780,6 +6065,13 @@ class BriwellHandler(SimpleHTTPRequestHandler):
                 query = urllib.parse.parse_qs(parsed.query)
                 live = (query.get("live") or ["0"])[0] in {"1", "true", "yes"}
                 return self.send_json(ai_provider_health(live))
+            if path == "/api/ai/usage":
+                query = urllib.parse.parse_qs(parsed.query)
+                try:
+                    limit = int((query.get("limit") or ["200"])[0])
+                except ValueError:
+                    limit = 200
+                return self.send_json(read_ai_usage_summary(max(1, min(limit, 1000))))
             if path == "/api/grant-dataset":
                 return self.send_json(read_grant_success_dataset())
             if path == "/api/versions":
@@ -5823,6 +6115,8 @@ class BriwellHandler(SimpleHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = urllib.parse.unquote(parsed.path)
         try:
+            if path.startswith("/api/") and path not in {"/api/ai/health"} and not self.require_workspace_auth():
+                return
             payload = self.read_json()
             if path == "/api/company":
                 company = write_company(payload)
@@ -5902,6 +6196,7 @@ class BriwellHandler(SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
         if target.parent == EXPORT_DIR:
             self.send_header("Content-Disposition", content_disposition_attachment(target.name))
         self.end_headers()

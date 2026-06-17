@@ -22,7 +22,8 @@
 11. User can add revision comments against the current draft or a selected version.
 12. Server creates a new revised plan version from those comments.
 13. Each version can be opened for editing, updated, and exported separately.
-14. Server exports HWPX, review HTML, JSON data, SVG visual assets, and template-preservation artifacts.
+14. Server optionally blocks unsafe exports when evidence/security gates fail.
+15. Server exports HWPX, review HTML, JSON data, SVG visual assets, package-level HWPX visual media, and template-preservation artifacts.
 
 ## Core Server Functions
 
@@ -38,7 +39,10 @@
 - `build_consultant_review`: creates a senior-review style readiness dashboard and fix list
 - `build_submission_fidelity_report`: analyzes uploaded HWPX source package readiness for form filling
 - `create_visual_asset_files`: renders proposal tables and infographics as deterministic SVG assets
+- `hwpx_visual_media_assets`: attaches generated SVG visual assets inside the HWPX package
+- `create_filled_template_attempt`: replaces explicit HWPX placeholders or falls back to an answer appendix
 - `ai_provider_health`: reports configured AI provider/model readiness
+- `read_ai_usage_summary`: reports actual token/cost usage records when API responses include usage metadata
 - `revise_plan_with_comments`: comment-driven revision generator
 - `save_draft_version` / `update_draft_version` / `export_draft_version`: version lifecycle APIs
 - `validate_plan_format`: submission format checks
@@ -51,12 +55,13 @@
 - `data/company.json`: active company compatibility cache
 - `data/templates/`: uploaded original grant templates
 - `data/datasets/`: grant success criteria dataset
+- `data/ai_usage.jsonl`: provider usage ledger
 - `data/versions/`: draft edit/version snapshots
 - `exports/`: generated deliverables
 
 ## Extension Points
 
-- Add true cell-level HWPX form filling in `create_template_preservation_files`.
+- Improve semantic HWPX table/cell matching for forms without explicit placeholders.
 - Add OCR engines in `extract_text` and `ocr_image_bytes`.
 - Add authenticated multi-user persistence later.
 - Replace local JSON storage with database when productized.

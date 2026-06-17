@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import os
 import sys
 import tempfile
 import zipfile
@@ -28,6 +29,7 @@ def install_temp_runtime(tmp: Path) -> None:
     server.COMPANY_FILE = server.DATA_DIR / "company.json"
     server.PROFILES_FILE = server.DATA_DIR / "profiles.json"
     server.GRANT_DATASET_FILE = server.DATASET_DIR / "grant_success_criteria.json"
+    server.AI_USAGE_FILE = server.DATA_DIR / "ai_usage.jsonl"
 
 
 def run() -> dict[str, object]:
@@ -103,6 +105,19 @@ def run() -> dict[str, object]:
         with zipfile.ZipFile(io.BytesIO(hwpx_path.read_bytes())) as archive:
             entries = set(archive.namelist())
 
+        unsafe_plan = json.loads(json.dumps(revised, ensure_ascii=False))
+        unsafe_plan["evidenceLockReport"] = {"status": "needs_evidence"}
+        unsafe_plan["unsupportedClaimAudit"] = {"highRiskClaims": 1}
+        previous_block = os.environ.get("DSW_BLOCK_UNSAFE_EXPORT")
+        os.environ["DSW_BLOCK_UNSAFE_EXPORT"] = "true"
+        try:
+            blocked_export = server.create_export(unsafe_plan)
+        finally:
+            if previous_block is None:
+                os.environ.pop("DSW_BLOCK_UNSAFE_EXPORT", None)
+            else:
+                os.environ["DSW_BLOCK_UNSAFE_EXPORT"] = previous_block
+
         checks = {
             "documents": len(insights.get("documents", [])),
             "restrictedDocuments": insights.get("securityReport", {}).get("restrictedDocumentCount"),
@@ -120,6 +135,7 @@ def run() -> dict[str, object]:
             "revisionChangedSections": (revised.get("revisionDiff") or {}).get("changedSectionCount", 0),
             "exportFiles": len(exported.get("files", [])),
             "svgFiles": len([item for item in exported.get("files", []) if item.get("filename", "").endswith(".svg")]),
+            "hwpxMediaSvgFiles": len([item for item in entries if item.startswith("Contents/Media/") and item.endswith(".svg")]),
             "hwpxEntriesOk": {
                 "mimetype",
                 "version.xml",
@@ -128,6 +144,7 @@ def run() -> dict[str, object]:
                 "Contents/section0.xml",
                 "META-INF/container.xml",
             }.issubset(entries),
+            "unsafeExportBlocked": bool(blocked_export.get("blocked")),
         }
 
         assert checks["documents"] == 2, checks
@@ -146,7 +163,9 @@ def run() -> dict[str, object]:
         assert checks["revisionChangedSections"] >= 1, checks
         assert checks["exportFiles"] >= 3, checks
         assert checks["svgFiles"] >= 1, checks
+        assert checks["hwpxMediaSvgFiles"] >= 1, checks
         assert checks["hwpxEntriesOk"], checks
+        assert checks["unsafeExportBlocked"], checks
         return checks
 
 
