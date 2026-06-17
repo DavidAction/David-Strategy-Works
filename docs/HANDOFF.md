@@ -55,3 +55,9 @@ API 키가 없으면 로컬 규칙 기반 생성기로 동작합니다.
 - 실제 사업자등록번호, 등기부등본, 재무자료, 고객정보는 민감정보입니다. GitHub public repo에 `data/`, `exports/`, `.env`를 올리지 마세요.
 - 현재 원본 HWPX 보존은 "원본 파일 첨부 + 답변 매핑 JSON + 생성 HWPX" 방식입니다. 실제 정부 양식의 표/셀 내부에 직접 삽입하려면 HWPX XML 구조별 매핑 구현이 필요합니다.
 - OCR은 Tesseract가 설치되어 있고 `TESSERACT_CMD`, `OCR_LANG`이 설정된 환경에서 동작합니다. 없으면 OCR 필요 상태를 표시합니다.
+
+## Comment Revision Workflow
+
+- Frontend entry points: `static/app.js`의 `reviseDraftFromComments`, `updateCurrentVersion`, `exportDraftVersion`.
+- Backend entry points: `server.py`의 `/api/versions/revise`, `/api/versions/update`, `/api/versions/{profileId}/{versionId}/export`.
+- Generated drafts are auto-saved, comment revisions create new versions, and each version can be opened, edited, updated, and exported independently.

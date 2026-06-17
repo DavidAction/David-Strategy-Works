@@ -16,7 +16,11 @@
 5. Server extracts template questions, requirements, and template source metadata.
 6. User enters submission brief: page count, structure, focus points, format rules, comments.
 7. Server generates a local draft, then optionally routes through Gemini, GPT, and Claude if API keys exist.
-8. Server exports HWPX, review HTML, JSON data, and template-preservation artifacts.
+8. The generated draft is auto-saved as a version.
+9. User can add revision comments against the current draft or a selected version.
+10. Server creates a new revised plan version from those comments.
+11. Each version can be opened for editing, updated, and exported separately.
+12. Server exports HWPX, review HTML, JSON data, and template-preservation artifacts.
 
 ## Core Server Functions
 
@@ -24,6 +28,8 @@
 - `analyze_documents`: company evidence analysis
 - `analyze_template`: grant form/question analysis
 - `generate_plan`: business plan generation orchestrator
+- `revise_plan_with_comments`: comment-driven revision generator
+- `save_draft_version` / `update_draft_version` / `export_draft_version`: version lifecycle APIs
 - `validate_plan_format`: submission format checks
 - `evaluate_proposal_strength`: grant-readiness scorecard
 - `create_export`: output package generation

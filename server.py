@@ -406,11 +406,13 @@ def version_summary(version: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": version.get("id", ""),
         "label": version.get("label", "초안"),
+        "source": version.get("source", "manual"),
         "companyName": plan.get("companyName", ""),
         "grantName": plan.get("grantName", ""),
         "score": scorecard.get("score", ""),
         "sectionCount": len(plan.get("sections") or []),
         "createdAt": version.get("createdAt", ""),
+        "updatedAt": version.get("updatedAt", ""),
     }
 
 
@@ -431,9 +433,11 @@ def save_draft_version(payload: dict[str, Any]) -> dict[str, Any]:
     version = {
         "id": f"{dt.datetime.now().strftime('%Y%m%d%H%M%S')}-{digest}",
         "label": clean_text(payload.get("label") or "초안 저장본")[:80],
+        "source": payload.get("source") or "manual",
         "plan": plan,
         "workspace": payload.get("workspace") or {},
         "createdAt": now,
+        "updatedAt": now,
     }
     store = read_version_store(profile_id)
     versions = [version] + list(store.get("versions", []))
@@ -448,6 +452,142 @@ def get_draft_version(profile_id: str, version_id: str) -> dict[str, Any]:
         if version.get("id") == version_id:
             return {"profileId": profile_id, "version": version}
     raise FileNotFoundError("초안 버전을 찾을 수 없습니다.")
+
+
+def update_draft_version(payload: dict[str, Any]) -> dict[str, Any]:
+    profile_id = payload.get("profileId") or "default-workspace"
+    version_id = payload.get("versionId") or ""
+    plan = payload.get("plan") or {}
+    if not version_id:
+        raise ValueError("수정할 버전 ID가 필요합니다.")
+    if not plan:
+        raise ValueError("저장할 초안이 없습니다.")
+    store = read_version_store(profile_id)
+    now = dt.datetime.now().isoformat(timespec="seconds")
+    for version in store.get("versions", []):
+        if version.get("id") == version_id:
+            version["label"] = clean_text(payload.get("label") or version.get("label") or "수정본")[:80]
+            version["source"] = payload.get("source") or version.get("source") or "edited"
+            version["plan"] = plan
+            version["workspace"] = payload.get("workspace") or version.get("workspace") or {}
+            version["updatedAt"] = now
+            write_version_store(profile_id, store)
+            return {"profileId": profile_id, "version": version_summary(version), "versions": list_draft_versions(profile_id)["versions"]}
+    raise FileNotFoundError("수정할 초안 버전을 찾을 수 없습니다.")
+
+
+def export_draft_version(profile_id: str, version_id: str) -> dict[str, Any]:
+    version = get_draft_version(profile_id, version_id)["version"]
+    result = create_export(version.get("plan") or {})
+    result["version"] = version_summary(version)
+    return result
+
+
+def comment_lines(comments: str) -> list[str]:
+    cleaned = clean_text(comments)
+    lines = [line.strip(" -•\t") for line in re.split(r"[\n\r]+", cleaned) if line.strip(" -•\t")]
+    if len(lines) <= 1:
+        parts = re.split(r"(?<=[.!?。])\s+|[;；]+", cleaned)
+        lines = [part.strip(" -•\t") for part in parts if part.strip(" -•\t")]
+    return lines[:12]
+
+
+def comment_targets(comment: str) -> set[str]:
+    text = comment.lower()
+    rules = {
+        "problem": ["문제", "pain", "고객 불편", "니즈", "필요성"],
+        "solution": ["솔루션", "해결", "제품", "서비스", "기능", "기술"],
+        "market": ["시장", "고객", "타깃", "수요", "경쟁", "시장성"],
+        "differentiation": ["차별", "경쟁", "강점", "우위", "대체재"],
+        "business_model": ["수익", "매출", "가격", "bm", "비즈니스모델", "판매"],
+        "growth": ["일정", "로드맵", "마일스톤", "성장", "확장"],
+        "budget": ["예산", "자금", "지원금", "사업비", "비용"],
+        "team": ["팀", "대표", "인력", "역량", "채용"],
+        "impact": ["효과", "고용", "파급", "사회", "지역", "esg"],
+        "risk": ["리스크", "위험", "보완", "한계", "대응"],
+    }
+    matched = {category for category, keywords in rules.items() if any(keyword in text for keyword in keywords)}
+    return matched or {"overview"}
+
+
+def section_revision_comments(section: dict[str, Any], lines: list[str]) -> list[str]:
+    category = section.get("category") or "overview"
+    heading = clean_text(section.get("heading", "")).lower()
+    selected: list[str] = []
+    for line in lines:
+        targets = comment_targets(line)
+        if category in targets or "overview" in targets or any(token and token in heading for token in re.findall(r"[0-9A-Za-z가-힣]{2,}", line.lower())[:4]):
+            selected.append(line)
+    return selected[:4]
+
+
+def revise_plan_with_comments(base_plan: dict[str, Any], comments: str, label: str = "") -> dict[str, Any]:
+    lines = comment_lines(comments)
+    if not lines:
+        raise ValueError("반영할 코멘트를 입력해 주세요.")
+    plan = json.loads(json.dumps(base_plan, ensure_ascii=False))
+    now = dt.datetime.now().isoformat(timespec="seconds")
+    revision_no = len(plan.get("revisionHistory") or []) + 1
+    memo = " / ".join(lines[:4])
+    plan["title"] = f"{plan.get('companyName', '회사')} {plan.get('grantName', '지원사업')} 사업계획서 개정본 v{revision_no}"
+    plan["summary"] = f"{plan.get('summary', '')}\n\n개정 방향: {memo}".strip()
+    plan["generatedAt"] = now
+    plan["revisedAt"] = now
+    plan.setdefault("revisionHistory", []).append(
+        {
+            "version": revision_no,
+            "label": label or f"코멘트 반영 v{revision_no}",
+            "comments": lines,
+            "createdAt": now,
+        }
+    )
+    for index, section in enumerate(plan.get("sections") or [], start=1):
+        selected = section_revision_comments(section, lines)
+        if not selected:
+            continue
+        guidance = " ".join(selected)
+        addition = (
+            "\n\n개정 보강: 심사위원이 확인할 핵심 쟁점을 더 선명하게 만들기 위해 "
+            f"{guidance} 방향을 반영했다. 따라서 본 항목은 기존 주장에 더해 실행 근거, 정량 지표, "
+            "지원금 사용과 성과의 연결성을 우선적으로 제시한다."
+        )
+        section["content"] = f"{clean_text(section.get('content', ''))}{addition}".strip()
+        section["answerStrategy"] = f"{section.get('answerStrategy', '')} 개정 코멘트 반영: {guidance[:220]}".strip()
+        section.setdefault("revisionNotes", []).append({"comments": selected, "revisedAt": now})
+        section["heading"] = section.get("heading") or f"{index}. 사업계획 항목"
+    plan.setdefault("qualityChecks", []).append(
+        {
+            "label": "코멘트 기반 개정",
+            "status": "ok",
+            "message": f"{len(lines)}개 코멘트를 반영해 새 사업계획서 버전을 생성했습니다.",
+        }
+    )
+    return plan
+
+
+def revise_draft_version(payload: dict[str, Any]) -> dict[str, Any]:
+    profile_id = payload.get("profileId") or "default-workspace"
+    version_id = payload.get("versionId") or ""
+    base_plan = payload.get("plan") or {}
+    if version_id:
+        base_plan = get_draft_version(profile_id, version_id)["version"].get("plan") or base_plan
+    if not base_plan:
+        raise ValueError("기준 사업계획서가 없습니다.")
+    comments = payload.get("comments") or ""
+    label = clean_text(payload.get("label") or "코멘트 반영본")[:80]
+    revised_plan = revise_plan_with_comments(base_plan, comments, label)
+    workspace = payload.get("workspace") or {}
+    workspace["plan"] = revised_plan
+    saved = save_draft_version(
+        {
+            "profileId": profile_id,
+            "label": label,
+            "source": "comment_revision",
+            "plan": revised_plan,
+            "workspace": workspace,
+        }
+    )
+    return {"profileId": profile_id, "plan": revised_plan, "version": saved["version"], "versions": saved["versions"]}
 
 
 DEFAULT_GRANT_SUCCESS_DATASET: dict[str, Any] = {
@@ -3532,7 +3672,12 @@ class BriwellHandler(SimpleHTTPRequestHandler):
                 profile_id = (query.get("profileId") or ["default-workspace"])[0]
                 return self.send_json(list_draft_versions(profile_id))
             if path.startswith("/api/versions/"):
-                parts = path[len("/api/versions/") :].split("/", 1)
+                parts = path[len("/api/versions/") :].split("/")
+                if len(parts) == 3 and parts[2] == "export":
+                    try:
+                        return self.send_json(export_draft_version(parts[0], parts[1]))
+                    except FileNotFoundError as exc:
+                        return self.send_json({"error": str(exc)}, status=404)
                 if len(parts) != 2:
                     return self.send_json({"error": "초안 버전 경로가 올바르지 않습니다."}, status=400)
                 try:
@@ -3571,6 +3716,13 @@ class BriwellHandler(SimpleHTTPRequestHandler):
                 return self.send_json(save_profile(payload))
             if path == "/api/versions":
                 return self.send_json(save_draft_version(payload))
+            if path == "/api/versions/update":
+                try:
+                    return self.send_json(update_draft_version(payload))
+                except FileNotFoundError as exc:
+                    return self.send_json({"error": str(exc)}, status=404)
+            if path == "/api/versions/revise":
+                return self.send_json(revise_draft_version(payload))
             if path == "/api/analyze":
                 filename = payload.get("filename", "")
                 raw = base64.b64decode(payload.get("contentBase64", "") or b"")

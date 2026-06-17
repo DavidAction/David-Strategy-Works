@@ -16,6 +16,9 @@
 - Original template source preservation package
 - OCR readiness reporting for scanned PDFs/images
 - Draft edit version save/restore
+- Auto-save generated drafts as versions
+- Comment-driven revised business plan generation
+- Version-level edit/update/export workflow
 - Grant success criteria dataset and UI
 
 ## Next Production Steps

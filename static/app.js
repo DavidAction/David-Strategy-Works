@@ -8,6 +8,8 @@ const state = {
   plan: null,
   aiSettings: null,
   versions: [],
+  currentVersionId: "",
+  versionExports: {},
   grantDataset: null,
 };
 
@@ -356,6 +358,8 @@ async function loadProfile(profileId) {
   state.template = workspace.template || null;
   state.templateGuidance = workspace.templateGuidance || null;
   state.plan = workspace.plan || null;
+  state.currentVersionId = "";
+  state.versionExports = {};
   renderCompanyForm();
   restoreWorkspaceInputs(workspace);
   renderProfileSelect();
@@ -406,6 +410,8 @@ function resetWorkspaceForProfile() {
   state.templateGuidance = null;
   state.plan = null;
   state.versions = [];
+  state.currentVersionId = "";
+  state.versionExports = {};
   qs("#companyDocs").value = "";
   qs("#documentText").value = "";
   qs("#additionalNotes").value = "";
@@ -419,6 +425,7 @@ function resetWorkspaceForProfile() {
   qs("#strictFormat").checked = true;
   qs("#grantName").value = "";
   qs("#versionLabel").value = "";
+  qs("#revisionComments").value = "";
   renderCompanyForm();
   renderDocumentInsights();
   renderAnalysis();
@@ -694,7 +701,8 @@ async function generateDraft() {
   });
   renderDraft();
   activatePanel("draft");
-  setStatus("초안 생성 완료");
+  await autoSaveDraftVersion(`${state.plan.grantName || "지원사업"} 최초 생성본`, "generated");
+  setStatus("초안 생성 및 버전 저장 완료");
 }
 
 function renderDraft() {
@@ -1024,6 +1032,26 @@ function exportLabel(file) {
   return file.label || "생성 파일";
 }
 
+async function autoSaveDraftVersion(label, source = "auto") {
+  if (!state.plan) return null;
+  syncDraftTextareas();
+  const profileId = state.activeProfileId || "default-workspace";
+  const result = await api("/api/versions", {
+    method: "POST",
+    body: JSON.stringify({
+      profileId,
+      label,
+      source,
+      plan: state.plan,
+      workspace: currentWorkspacePayload(),
+    }),
+  });
+  state.versions = result.versions || [];
+  state.currentVersionId = result.version?.id || state.currentVersionId;
+  renderVersionSelect();
+  return result.version;
+}
+
 async function loadVersions() {
   const profileId = state.activeProfileId || "default-workspace";
   try {
@@ -1037,18 +1065,73 @@ async function loadVersions() {
 
 function renderVersionSelect() {
   const select = qs("#versionSelect");
-  if (!select) return;
+  const baseSelect = qs("#revisionBaseSelect");
   if (!state.versions.length) {
-    select.innerHTML = `<option value="">저장된 버전 없음</option>`;
+    if (select) select.innerHTML = `<option value="">저장된 버전 없음</option>`;
+    if (baseSelect) baseSelect.innerHTML = `<option value="">현재 화면의 초안 기준</option>`;
+    renderVersionList();
     return;
   }
-  select.innerHTML = [
+  const versionOptions = [
     `<option value="">버전 선택</option>`,
     ...state.versions.map((version) => {
       const label = `${version.label || "초안"} · ${version.createdAt || ""}`;
-      return `<option value="${escapeAttr(version.id)}">${escapeHtml(label)}</option>`;
+      return `<option value="${escapeAttr(version.id)}"${version.id === state.currentVersionId ? " selected" : ""}>${escapeHtml(label)}</option>`;
     }),
   ].join("");
+  if (select) select.innerHTML = versionOptions;
+  if (baseSelect) {
+    baseSelect.innerHTML = [
+      `<option value="">현재 화면의 초안 기준</option>`,
+      ...state.versions.map((version) => {
+        const label = `${version.label || "초안"} · ${version.createdAt || ""}`;
+        return `<option value="${escapeAttr(version.id)}"${version.id === state.currentVersionId ? " selected" : ""}>${escapeHtml(label)}</option>`;
+      }),
+    ].join("");
+  }
+  renderVersionList();
+}
+
+function renderVersionList() {
+  const root = qs("#versionList");
+  if (!root) return;
+  if (!state.versions.length) {
+    root.className = "version-list empty-state";
+    root.textContent = "저장된 초안 버전이 없습니다.";
+    return;
+  }
+  root.className = "version-list";
+  root.innerHTML = state.versions
+    .map((version) => {
+      const files = state.versionExports[version.id]?.files || [];
+      const fileLinks = files.length
+        ? `<div class="version-files">${files
+            .map((file) => `<a href="${escapeAttr(file.url)}" download>${escapeHtml(exportLabel(file))}</a>`)
+            .join("")}</div>`
+        : "";
+      return `
+        <article class="version-card ${version.id === state.currentVersionId ? "active" : ""}">
+          <div>
+            <span class="tag">${escapeHtml(version.source || "manual")}</span>
+            <strong>${escapeHtml(version.label || "초안")}</strong>
+            <p class="micro">${escapeHtml(version.createdAt || "")}${version.updatedAt ? ` · 수정 ${escapeHtml(version.updatedAt)}` : ""}</p>
+            <p class="hint">${escapeHtml(version.companyName || "")} · ${escapeHtml(version.grantName || "")} · ${escapeHtml(version.sectionCount || 0)}개 섹션 · ${escapeHtml(version.score || "-")}점</p>
+          </div>
+          <div class="version-actions">
+            <button class="ghost-btn" type="button" data-version-open="${escapeAttr(version.id)}">열기·수정</button>
+            <button class="ghost-btn" type="button" data-version-export="${escapeAttr(version.id)}">다운로드 생성</button>
+          </div>
+          ${fileLinks}
+        </article>
+      `;
+    })
+    .join("");
+  root.querySelectorAll("[data-version-open]").forEach((button) => {
+    button.addEventListener("click", () => restoreDraftVersion(button.dataset.versionOpen));
+  });
+  root.querySelectorAll("[data-version-export]").forEach((button) => {
+    button.addEventListener("click", () => exportDraftVersion(button.dataset.versionExport));
+  });
 }
 
 async function saveDraftVersion() {
@@ -1066,18 +1149,20 @@ async function saveDraftVersion() {
     body: JSON.stringify({
       profileId,
       label,
+      source: "manual",
       plan: state.plan,
       workspace: currentWorkspacePayload(),
     }),
   });
   state.versions = result.versions || [];
+  state.currentVersionId = result.version?.id || state.currentVersionId;
   qs("#versionLabel").value = "";
   renderVersionSelect();
   setStatus("초안 버전 저장 완료");
 }
 
-async function restoreDraftVersion() {
-  const versionId = qs("#versionSelect").value;
+async function restoreDraftVersion(versionIdArg = "") {
+  const versionId = versionIdArg || qs("#versionSelect").value;
   if (!versionId) {
     setStatus("불러올 버전을 선택하세요.");
     return;
@@ -1086,6 +1171,7 @@ async function restoreDraftVersion() {
   setStatus("초안 버전 불러오는 중");
   const result = await api(`/api/versions/${encodeURIComponent(profileId)}/${encodeURIComponent(versionId)}`);
   const version = result.version;
+  state.currentVersionId = version.id || versionId;
   state.plan = version.plan || null;
   if (version.workspace) {
     state.template = version.workspace.template || state.template;
@@ -1096,8 +1182,110 @@ async function restoreDraftVersion() {
   renderAnalysis();
   renderDocumentInsights();
   renderDraft();
+  renderVersionSelect();
   activatePanel("draft");
   setStatus("초안 버전 불러오기 완료");
+}
+
+async function reviseDraftFromComments() {
+  const comments = qs("#revisionComments").value.trim();
+  if (!comments) {
+    setStatus("반영할 코멘트를 입력하세요.");
+    return;
+  }
+  if (!state.plan && !qs("#revisionBaseSelect").value) {
+    setStatus("먼저 기준 사업계획서를 생성하거나 버전을 선택하세요.");
+    return;
+  }
+  syncDraftTextareas();
+  const profileId = state.activeProfileId || "default-workspace";
+  const baseVersionId = qs("#revisionBaseSelect").value || "";
+  const label = qs("#versionLabel").value.trim() || `코멘트 반영본 ${new Date().toLocaleString("ko-KR")}`;
+  setStatus("코멘트 반영 새 버전 생성 중");
+  const result = await api("/api/versions/revise", {
+    method: "POST",
+    body: JSON.stringify({
+      profileId,
+      versionId: baseVersionId,
+      label,
+      comments,
+      plan: state.plan,
+      workspace: currentWorkspacePayload(),
+    }),
+  });
+  state.plan = result.plan;
+  state.versions = result.versions || [];
+  state.currentVersionId = result.version?.id || state.currentVersionId;
+  qs("#revisionComments").value = "";
+  qs("#versionLabel").value = "";
+  renderDraft();
+  renderVersionSelect();
+  setStatus("코멘트 반영 새 버전 생성 완료");
+}
+
+async function updateCurrentVersion() {
+  const versionId = state.currentVersionId || qs("#versionSelect").value;
+  if (!versionId) {
+    setStatus("업데이트할 버전을 먼저 열거나 선택하세요.");
+    return;
+  }
+  if (!state.plan) {
+    setStatus("저장할 초안이 없습니다.");
+    return;
+  }
+  syncDraftTextareas();
+  const label = qs("#versionLabel").value.trim() || state.versions.find((item) => item.id === versionId)?.label || "수정본";
+  const profileId = state.activeProfileId || "default-workspace";
+  setStatus("선택 버전 업데이트 중");
+  const result = await api("/api/versions/update", {
+    method: "POST",
+    body: JSON.stringify({
+      profileId,
+      versionId,
+      label,
+      source: "edited",
+      plan: state.plan,
+      workspace: currentWorkspacePayload(),
+    }),
+  });
+  state.versions = result.versions || [];
+  state.currentVersionId = result.version?.id || versionId;
+  qs("#versionLabel").value = "";
+  renderVersionSelect();
+  setStatus("선택 버전 업데이트 완료");
+}
+
+async function exportDraftVersion(versionIdArg = "") {
+  const versionId = versionIdArg || qs("#versionSelect").value || state.currentVersionId;
+  if (!versionId) {
+    setStatus("다운로드할 버전을 선택하세요.");
+    return;
+  }
+  const profileId = state.activeProfileId || "default-workspace";
+  setStatus("선택 버전 다운로드 파일 생성 중");
+  const result = await api(`/api/versions/${encodeURIComponent(profileId)}/${encodeURIComponent(versionId)}/export`);
+  state.versionExports[versionId] = result;
+  renderVersionList();
+  renderVersionExportResults(result);
+  setStatus("선택 버전 다운로드 파일 생성 완료");
+}
+
+function renderVersionExportResults(result) {
+  const root = qs("#versionExportResults");
+  if (!root || !result) return;
+  root.innerHTML = (result.files || [])
+    .map(
+      (file) => `
+        <article class="export-item">
+          <div>
+            <strong>${escapeHtml(exportLabel(file))}</strong>
+            <p class="micro">${escapeHtml(result.version?.label || "")} · ${escapeHtml(file.filename)}</p>
+          </div>
+          <a href="${escapeAttr(file.url)}" download>다운로드</a>
+        </article>
+      `
+    )
+    .join("");
 }
 
 function syncDraftTextareas() {
@@ -1176,6 +1364,12 @@ async function boot() {
   qs("#exportBtn").addEventListener("click", exportPlan);
   qs("#saveVersionBtn").addEventListener("click", saveDraftVersion);
   qs("#restoreVersionBtn").addEventListener("click", restoreDraftVersion);
+  qs("#reviseBtn").addEventListener("click", reviseDraftFromComments);
+  qs("#updateVersionBtn").addEventListener("click", updateCurrentVersion);
+  qs("#versionSelect").addEventListener("change", (event) => {
+    state.currentVersionId = event.target.value || state.currentVersionId;
+    renderVersionList();
+  });
 
   try {
     await Promise.allSettled([loadAiSettings(), loadGrantDataset()]);

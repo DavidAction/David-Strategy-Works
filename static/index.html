@@ -230,6 +230,32 @@
               <button id="restoreVersionBtn" class="ghost-btn" type="button">버전 불러오기</button>
             </div>
           </div>
+          <div class="revision-board">
+            <div class="revision-head">
+              <div>
+                <h3>코멘트 기반 재작성</h3>
+                <p class="hint">작성된 사업계획서를 기준으로 코멘트를 입력하면 새 개정본을 생성하고 버전으로 자동 저장합니다.</p>
+              </div>
+              <div class="toolbar compact">
+                <select id="revisionBaseSelect" aria-label="재작성 기준 버전">
+                  <option value="">현재 화면의 초안 기준</option>
+                </select>
+                <button id="reviseBtn" class="primary-btn" type="button">코멘트 반영 새 버전</button>
+              </div>
+            </div>
+            <textarea id="revisionComments" rows="5" placeholder="예: 시장 규모 근거를 더 구체화하고, 지원금 사용 계획이 매출 전환과 직접 연결되도록 보강. 팀 역량은 짧게 줄이고 고객 검증 결과를 앞쪽에 배치."></textarea>
+          </div>
+          <div class="version-library">
+            <div class="version-library-head">
+              <div>
+                <h3>버전 라이브러리</h3>
+                <p class="hint">저장된 버전을 열어 편집하고, 선택 버전을 업데이트하거나 HWPX 패키지로 다운로드할 수 있습니다.</p>
+              </div>
+              <button id="updateVersionBtn" class="ghost-btn" type="button">선택 버전 업데이트</button>
+            </div>
+            <div id="versionList" class="version-list empty-state">저장된 초안 버전이 없습니다.</div>
+            <div id="versionExportResults" class="export-list"></div>
+          </div>
           <div id="draftSummary" class="summary-strip">회사 프로필, 회사 문서, 지원사업 양식을 준비한 뒤 초안을 생성하세요.</div>
           <div id="aiEnginePanel" class="ai-engine-grid"></div>
           <div id="proposalScorecard" class="scorecard-grid"></div>
