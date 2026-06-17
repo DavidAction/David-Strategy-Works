@@ -339,6 +339,16 @@ def safe_filename(name: str, fallback: str = "file") -> str:
     return stem[:120] or fallback
 
 
+def export_file_url(filename: str) -> str:
+    return f"/exports/{urllib.parse.quote(filename, safe='')}"
+
+
+def content_disposition_attachment(filename: str) -> str:
+    ascii_name = re.sub(r"[^0-9A-Za-z._-]+", "-", filename or "download").strip("-") or "download"
+    encoded_name = urllib.parse.quote(filename or ascii_name, safe="")
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded_name}"
+
+
 def store_template_source(filename: str, data: bytes, pasted_text: str = "") -> dict[str, Any]:
     ensure_dirs()
     ext = Path(filename or "").suffix.lower()
@@ -5083,9 +5093,9 @@ def create_template_preservation_files(plan: dict[str, Any], base: str, generate
         archive.write(generated_hwpx_path, f"generated/{generated_hwpx_path.name}")
         archive.write(mapping_path, f"mapping/{mapping_path.name}")
     return [
-        {"label": "원본 제출양식", "url": f"/exports/{original_export_path.name}", "filename": original_export_path.name},
-        {"label": "양식-답변 매핑 JSON", "url": f"/exports/{mapping_path.name}", "filename": mapping_path.name},
-        {"label": "양식 보존 패키지 ZIP", "url": f"/exports/{package_path.name}", "filename": package_path.name},
+        {"label": "원본 제출양식", "url": export_file_url(original_export_path.name), "filename": original_export_path.name},
+        {"label": "양식-답변 매핑 JSON", "url": export_file_url(mapping_path.name), "filename": mapping_path.name},
+        {"label": "양식 보존 패키지 ZIP", "url": export_file_url(package_path.name), "filename": package_path.name},
     ]
 
 
@@ -5102,9 +5112,9 @@ def create_export(plan: dict[str, Any]) -> dict[str, Any]:
     create_html_export(plan, html_path)
     json_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
     files = [
-        {"label": "HWPX 사업계획서", "url": f"/exports/{hwpx_path.name}", "filename": hwpx_path.name},
-        {"label": "검토용 HTML", "url": f"/exports/{html_path.name}", "filename": html_path.name},
-        {"label": "초안 데이터 JSON", "url": f"/exports/{json_path.name}", "filename": json_path.name},
+        {"label": "HWPX 사업계획서", "url": export_file_url(hwpx_path.name), "filename": hwpx_path.name},
+        {"label": "검토용 HTML", "url": export_file_url(html_path.name), "filename": html_path.name},
+        {"label": "초안 데이터 JSON", "url": export_file_url(json_path.name), "filename": json_path.name},
     ]
     files.extend(create_template_preservation_files(plan, base, hwpx_path))
     return {
@@ -5123,6 +5133,7 @@ class BriwellHandler(SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("X-Content-Type-Options", "nosniff")
         super().end_headers()
 
     def do_OPTIONS(self) -> None:
@@ -5253,12 +5264,14 @@ class BriwellHandler(SimpleHTTPRequestHandler):
         content_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
         if target.suffix.lower() == ".hwpx":
             content_type = "application/hwp+zip"
+        elif content_type.startswith("text/") or target.suffix.lower() in {".js", ".json", ".css", ".html"}:
+            content_type = f"{content_type}; charset=utf-8"
         data = target.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
         if target.parent == EXPORT_DIR:
-            self.send_header("Content-Disposition", f'attachment; filename="{target.name}"')
+            self.send_header("Content-Disposition", content_disposition_attachment(target.name))
         self.end_headers()
         self.wfile.write(data)
 
