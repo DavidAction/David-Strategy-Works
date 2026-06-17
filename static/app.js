@@ -512,7 +512,12 @@ function renderDocumentInsights() {
   qs("#patchCount").textContent = countPatch(insights?.companyPatch || {});
   const root = qs("#documentResults");
   const factsRoot = qs("#factResults");
+  const summaryRoot = qs("#documentSummary");
   if (!insights) {
+    if (summaryRoot) {
+      summaryRoot.className = "document-summary empty-state";
+      summaryRoot.textContent = "문서가 많아지면 핵심 근거와 부족한 증빙 영역을 자동으로 정리합니다.";
+    }
     root.className = "list-stack empty-state";
     root.textContent = "분석된 회사 문서가 없습니다.";
     factsRoot.innerHTML = "";
@@ -520,20 +525,42 @@ function renderDocumentInsights() {
     return;
   }
 
+  renderDocumentLibrarySummary(insights.librarySummary);
   root.className = "list-stack";
-  root.innerHTML = (insights.documents || [])
+  root.innerHTML = [...(insights.documents || [])]
+    .sort((a, b) => Number(b.relevanceScore || 0) - Number(a.relevanceScore || 0))
     .map((doc) => {
       const ocr = doc.ocrStatus || {};
       const notes = (doc.notes || []).map((note) => `<p class="micro">${escapeHtml(note)}</p>`).join("");
+      const coverage = (doc.coverageTags || [])
+        .map((tag) => `<span title="${escapeAttr(`${tag.keywordHits || 0} keyword hits`)}">${escapeHtml(tag.label)}</span>`)
+        .join("");
+      const snippets = (doc.evidenceSnippets || [])
+        .slice(0, 4)
+        .map(
+          (snippet) => `
+            <li>
+              <span>${escapeHtml(snippet.categoryLabel || "근거")}</span>
+              <p>${escapeHtml(snippet.text || "")}</p>
+            </li>
+          `
+        )
+        .join("");
       return `
-        <article class="insight-item">
+        <article class="insight-item document-insight ${escapeAttr(doc.priority || "low")}">
           <div class="item-title">
             <span class="tag">${escapeHtml(doc.documentTypeLabel || "문서")}</span>
             <strong>${escapeHtml(doc.filename)}</strong>
+            <span class="document-score">${Number(doc.relevanceScore || 0)}점</span>
+            <span class="quality-badge ${escapeAttr(doc.extractionQuality?.status || "")}">${escapeHtml(qualityLabel(doc.extractionQuality))}</span>
+            ${doc.duplicateOf ? `<span class="ocr-badge needs_ocr">중복: ${escapeHtml(doc.duplicateOf)}</span>` : ""}
             ${ocr.status ? `<span class="ocr-badge ${escapeAttr(ocr.status)}">${escapeHtml(ocrLabel(ocr))}</span>` : ""}
           </div>
           <p class="hint">${escapeHtml(doc.summary || "")}</p>
-          <p class="micro">${Number(doc.extractedCharacters || 0).toLocaleString()}자 추출</p>
+          <p class="micro">${priorityLabel(doc.priority)} · ${Number(doc.extractedCharacters || 0).toLocaleString()}자 추출 · ${Number(doc.byteSize || 0).toLocaleString()} bytes</p>
+          <p class="hint">${escapeHtml(doc.recommendedUse || "")}</p>
+          ${coverage ? `<div class="coverage-chips">${coverage}</div>` : ""}
+          ${snippets ? `<ol class="evidence-snippets">${snippets}</ol>` : ""}
           ${notes}
         </article>
       `;
@@ -554,10 +581,77 @@ function renderDocumentInsights() {
   renderMetrics();
 }
 
+function renderDocumentLibrarySummary(summary) {
+  const root = qs("#documentSummary");
+  if (!root) return;
+  if (!summary) {
+    root.className = "document-summary empty-state";
+    root.textContent = "문서 요약이 없습니다.";
+    return;
+  }
+  root.className = "document-summary";
+  const coverage = (summary.coverage || [])
+    .map(
+      (item) => `
+        <article class="coverage-item ${escapeAttr(item.status || "")}">
+          <span>${escapeHtml(item.label)}</span>
+          <strong>${Number(item.documentCount || 0)}</strong>
+          <small>${Number(item.snippetCount || 0)}개 증빙</small>
+        </article>
+      `
+    )
+    .join("");
+  const highValue = (summary.highValueDocuments || [])
+    .slice(0, 5)
+    .map((item) => `<li>${escapeHtml(item.filename)} <strong>${Number(item.score || 0)}점</strong></li>`)
+    .join("");
+  const actions = (summary.recommendedActions || []).map((action) => `<li>${escapeHtml(action)}</li>`).join("");
+  const warnings = (summary.warnings || [])
+    .map((warning) => `<li>${escapeHtml(warning.filename)}: ${escapeHtml(warning.message)}</li>`)
+    .join("");
+  root.innerHTML = `
+    <article class="document-summary-hero">
+      <span>근거자료 라이브러리 분석</span>
+      <strong>${Number(summary.totalDocuments || 0)}개 문서 · ${Number(summary.totalEvidenceSnippets || 0)}개 핵심 증빙 · ${Number(summary.totalFacts || 0)}개 사실</strong>
+      <p>${Number(summary.totalCharacters || 0).toLocaleString()}자 추출. 점수가 높은 문서와 부족한 근거 영역을 기준으로 초안 생성에 반영합니다.</p>
+    </article>
+    <div class="coverage-grid">${coverage}</div>
+    <div class="document-summary-columns">
+      <section>
+        <h4>우선 활용 문서</h4>
+        <ul>${highValue || "<li>아직 우선 문서가 없습니다.</li>"}</ul>
+      </section>
+      <section>
+        <h4>권장 보강</h4>
+        <ul>${actions || "<li>권장 보강 사항이 없습니다.</li>"}</ul>
+      </section>
+      ${warnings ? `<section><h4>확인 필요</h4><ul>${warnings}</ul></section>` : ""}
+    </div>
+  `;
+}
+
 function ocrLabel(ocr) {
   if (ocr.status === "completed_or_text_available") return "OCR/텍스트 확보";
   if (ocr.status === "needs_ocr") return "OCR 필요";
   return "텍스트 추출";
+}
+
+function priorityLabel(priority) {
+  const labels = {
+    high: "핵심 근거",
+    medium: "보조 근거",
+    low: "참고 문서",
+    needs_review: "추출 확인 필요",
+    duplicate: "중복 문서",
+  };
+  return labels[priority] || "참고 문서";
+}
+
+function qualityLabel(quality = {}) {
+  if (quality.status === "strong") return `추출 우수 ${quality.score || 0}점`;
+  if (quality.status === "partial") return `부분 추출 ${quality.score || 0}점`;
+  if (quality.status === "weak") return `추출 취약 ${quality.score || 0}점`;
+  return "추출 품질";
 }
 
 async function analyzeTemplate() {

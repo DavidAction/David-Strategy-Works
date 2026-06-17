@@ -15,6 +15,7 @@
 - GitHub handoff package
 - Original template source preservation package
 - OCR readiness reporting for scanned PDFs/images
+- Multi-document evidence scoring, coverage map, duplicate detection, and snippet extraction
 - Draft edit version save/restore
 - Auto-save generated drafts as versions
 - Comment-driven revised business plan generation

@@ -1357,6 +1357,289 @@ def document_summary(text: str, document_type: str) -> str:
     return " / ".join(selected[:3])
 
 
+DOCUMENT_COVERAGE_AREAS: list[dict[str, Any]] = [
+    {
+        "id": "company_identity",
+        "label": "회사 기본·법적 정보",
+        "keywords": ["회사명", "상호", "대표", "사업자등록", "법인등록", "업태", "종목", "주소", "capital", "registration"],
+    },
+    {
+        "id": "problem_customer",
+        "label": "문제·고객 니즈",
+        "keywords": ["문제", "고객", "니즈", "불편", "pain", "인터뷰", "수요", "VOC", "설문"],
+    },
+    {
+        "id": "solution_product",
+        "label": "제품·서비스·기술",
+        "keywords": ["제품", "서비스", "솔루션", "기능", "기술", "플랫폼", "앱", "MVP", "prototype"],
+    },
+    {
+        "id": "market_competition",
+        "label": "시장·경쟁",
+        "keywords": ["시장", "경쟁", "대체재", "TAM", "SAM", "SOM", "규모", "성장률", "트렌드", "market"],
+    },
+    {
+        "id": "traction_evidence",
+        "label": "검증·성과 증빙",
+        "keywords": ["매출", "고객", "계약", "LOI", "MOU", "파일럿", "실증", "성과", "가입", "전환", "retention"],
+    },
+    {
+        "id": "team_capability",
+        "label": "팀 역량",
+        "keywords": ["대표", "팀", "경력", "역량", "전문", "인력", "채용", "advisor", "mentor"],
+    },
+    {
+        "id": "finance_budget",
+        "label": "재무·예산·자금",
+        "keywords": ["매출", "비용", "예산", "자금", "사업비", "견적", "손익", "투자", "funding", "budget"],
+    },
+    {
+        "id": "ip_certification",
+        "label": "지식재산·인증",
+        "keywords": ["특허", "상표", "저작권", "인증", "허가", "출원", "등록", "IP", "certification"],
+    },
+    {
+        "id": "impact_risk",
+        "label": "기대효과·리스크",
+        "keywords": ["고용", "파급", "효과", "사회", "지역", "ESG", "리스크", "대응", "보완"],
+    },
+]
+
+
+DOCUMENT_TYPE_BASE_SCORE = {
+    "existing_business_plan": 28,
+    "business_registration": 20,
+    "corporate_registry": 18,
+    "finance": 24,
+    "ip_certification": 22,
+    "general": 12,
+}
+
+
+def content_signature(raw: bytes, text: str) -> str:
+    if raw:
+        return hashlib.sha1(raw).hexdigest()
+    if text.strip():
+        return hashlib.sha1(clean_text(text).encode("utf-8")).hexdigest()
+    return ""
+
+
+def evidence_candidate_lines(text: str) -> list[str]:
+    lines = []
+    for raw_line in clean_text(text).splitlines():
+        line = re.sub(r"\s+", " ", raw_line).strip()
+        if 18 <= len(line) <= 260:
+            lines.append(line)
+    return lines[:900]
+
+
+def line_signal_score(line: str, area: dict[str, Any]) -> int:
+    compact = line.lower()
+    score = 0
+    for keyword in area.get("keywords", []):
+        if keyword.lower() in compact:
+            score += 8
+    if re.search(r"\d", line):
+        score += 5
+    if re.search(r"\d{4}[.\-/년]\s*\d{1,2}|\d+(?:\.\d+)?\s*(?:%|명|건|원|만원|억원|개|회)", line):
+        score += 8
+    if any(token.lower() in compact for token in ["계약", "매출", "특허", "인증", "고객", "pilot", "loi", "mou", "revenue"]):
+        score += 8
+    return score
+
+
+def build_evidence_snippets(text: str, document_type: str) -> list[dict[str, Any]]:
+    lines = evidence_candidate_lines(text)
+    candidates: list[dict[str, Any]] = []
+    for line in lines:
+        best_area = None
+        best_score = 0
+        for area in DOCUMENT_COVERAGE_AREAS:
+            score = line_signal_score(line, area)
+            if score > best_score:
+                best_area = area
+                best_score = score
+        if best_area and best_score >= 12:
+            candidates.append(
+                {
+                    "category": best_area["id"],
+                    "categoryLabel": best_area["label"],
+                    "text": line[:260],
+                    "score": min(100, best_score),
+                }
+            )
+    candidates.sort(key=lambda item: item["score"], reverse=True)
+    seen: set[str] = set()
+    snippets: list[dict[str, Any]] = []
+    for item in candidates:
+        marker = re.sub(r"\W+", "", item["text"].lower())[:90]
+        if marker in seen:
+            continue
+        seen.add(marker)
+        snippets.append(item)
+        if len(snippets) >= 8:
+            break
+    return snippets
+
+
+def build_coverage_tags(text: str, facts: list[dict[str, str]], snippets: list[dict[str, Any]], document_type: str = "") -> list[dict[str, Any]]:
+    haystack = f"{text[:16000]}\n" + "\n".join(fact.get("label", "") + " " + fact.get("value", "") for fact in facts)
+    compact = haystack.lower()
+    snippet_counts: dict[str, int] = {}
+    for snippet in snippets:
+        snippet_counts[snippet["category"]] = snippet_counts.get(snippet["category"], 0) + 1
+    tags: list[dict[str, Any]] = []
+    for area in DOCUMENT_COVERAGE_AREAS:
+        keyword_hits = sum(1 for keyword in area.get("keywords", []) if keyword.lower() in compact)
+        snippet_count = snippet_counts.get(area["id"], 0)
+        if keyword_hits or snippet_count:
+            confidence = min(100, keyword_hits * 12 + snippet_count * 18)
+            tags.append(
+                {
+                    "id": area["id"],
+                    "label": area["label"],
+                    "keywordHits": keyword_hits,
+                    "snippetCount": snippet_count,
+                    "confidence": confidence,
+                }
+            )
+    default_coverage = {
+        "existing_business_plan": ["problem_customer", "solution_product", "market_competition", "traction_evidence", "finance_budget"],
+        "business_registration": ["company_identity"],
+        "corporate_registry": ["company_identity"],
+        "finance": ["finance_budget", "traction_evidence"],
+        "ip_certification": ["ip_certification"],
+    }
+    existing_ids = {tag["id"] for tag in tags}
+    if clean_text(text):
+        for area_id in default_coverage.get(document_type, []):
+            if area_id in existing_ids:
+                continue
+            area = next((item for item in DOCUMENT_COVERAGE_AREAS if item["id"] == area_id), None)
+            if area:
+                tags.append(
+                    {
+                        "id": area["id"],
+                        "label": area["label"],
+                        "keywordHits": 0,
+                        "snippetCount": 0,
+                        "confidence": 16,
+                    }
+                )
+    tags.sort(key=lambda item: item["confidence"], reverse=True)
+    return tags[:6]
+
+
+def document_extraction_quality(text: str, notes: list[str], ocr_status: dict[str, Any]) -> dict[str, Any]:
+    length = len(clean_text(text))
+    score = 15
+    if length >= 300:
+        score += 25
+    if length >= 1200:
+        score += 25
+    if length >= 3500:
+        score += 15
+    if ocr_status.get("status") == "needs_ocr":
+        score -= 30
+    if any("실패" in note or "failed" in note.lower() for note in notes):
+        score -= 20
+    score = max(0, min(100, score))
+    if score >= 75:
+        status = "strong"
+        message = "본문 추출이 충분해 사업계획서 근거로 바로 활용하기 좋습니다."
+    elif score >= 45:
+        status = "partial"
+        message = "핵심 문장은 추출됐지만 일부 항목은 원문 확인이나 보강이 필요합니다."
+    else:
+        status = "weak"
+        message = "추출 텍스트가 부족합니다. 스캔본 OCR 또는 텍스트 직접 입력을 권장합니다."
+    return {"score": score, "status": status, "message": message}
+
+
+def document_relevance_score(document_type: str, text: str, facts: list[dict[str, str]], snippets: list[dict[str, Any]], coverage_tags: list[dict[str, Any]]) -> int:
+    score = DOCUMENT_TYPE_BASE_SCORE.get(document_type, 12)
+    score += min(22, len(facts) * 4)
+    score += min(26, len(snippets) * 4)
+    score += min(24, len(coverage_tags) * 4)
+    if len(clean_text(text)) >= 1500:
+        score += 8
+    if re.search(r"\d+(?:\.\d+)?\s*(?:%|명|건|원|만원|억원|개|회)", text):
+        score += 8
+    return max(0, min(100, score))
+
+
+def document_priority(score: int, quality: dict[str, Any], duplicate_of: str = "") -> str:
+    if duplicate_of:
+        return "duplicate"
+    if quality.get("status") == "weak":
+        return "needs_review"
+    if score >= 75:
+        return "high"
+    if score >= 50:
+        return "medium"
+    return "low"
+
+
+def recommended_document_use(document_type: str, coverage_tags: list[dict[str, Any]], score: int) -> str:
+    labels = ", ".join(tag["label"] for tag in coverage_tags[:3]) or document_type_label(document_type)
+    if score >= 75:
+        return f"핵심 근거 문서로 우선 반영하세요. 주요 활용 영역: {labels}."
+    if score >= 50:
+        return f"보조 근거로 활용하고 부족한 정량 근거를 보강하세요. 관련 영역: {labels}."
+    return f"참고 문서로 분류하고 추출 품질 또는 원문 내용을 확인하세요. 관련 영역: {labels}."
+
+
+def build_document_library_summary(analyzed_docs: list[dict[str, Any]], facts: list[dict[str, str]]) -> dict[str, Any]:
+    coverage: list[dict[str, Any]] = []
+    for area in DOCUMENT_COVERAGE_AREAS:
+        docs = [doc for doc in analyzed_docs if any(tag.get("id") == area["id"] for tag in doc.get("coverageTags", []))]
+        snippets = sum(1 for doc in docs for snippet in doc.get("evidenceSnippets", []) if snippet.get("category") == area["id"])
+        coverage.append(
+            {
+                "id": area["id"],
+                "label": area["label"],
+                "documentCount": len(docs),
+                "snippetCount": snippets,
+                "status": "covered" if docs else "missing",
+            }
+        )
+    high_value = sorted(analyzed_docs, key=lambda doc: doc.get("relevanceScore", 0), reverse=True)[:8]
+    warnings = [
+        {
+            "filename": doc.get("filename", ""),
+            "message": "중복 문서입니다." if doc.get("duplicateOf") else doc.get("extractionQuality", {}).get("message", ""),
+        }
+        for doc in analyzed_docs
+        if doc.get("extractionQuality", {}).get("status") == "weak" or doc.get("duplicateOf")
+    ][:8]
+    missing = [item["label"] for item in coverage if item["status"] == "missing"]
+    actions: list[str] = []
+    if missing:
+        actions.append("부족한 근거 영역: " + ", ".join(missing[:4]))
+    if any(doc.get("ocrStatus", {}).get("status") == "needs_ocr" for doc in analyzed_docs):
+        actions.append("스캔 PDF/이미지 문서는 OCR 설정 또는 텍스트 직접 입력으로 보강하세요.")
+    if not actions:
+        actions.append("핵심 근거 영역이 고르게 확보되었습니다. 점수가 높은 문서를 초안 생성 근거로 우선 활용하세요.")
+    return {
+        "totalDocuments": len(analyzed_docs),
+        "totalCharacters": sum(doc.get("extractedCharacters", 0) for doc in analyzed_docs),
+        "totalFacts": len(facts),
+        "totalEvidenceSnippets": sum(len(doc.get("evidenceSnippets", [])) for doc in analyzed_docs),
+        "coverage": coverage,
+        "highValueDocuments": [
+            {
+                "id": doc.get("id", ""),
+                "filename": doc.get("filename", ""),
+                "score": doc.get("relevanceScore", 0),
+                "priority": doc.get("priority", ""),
+            }
+            for doc in high_value
+        ],
+        "warnings": warnings,
+        "recommendedActions": actions,
+    }
+
+
 def merge_patch(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     merged = json.loads(json.dumps(base, ensure_ascii=False))
     for group, values in patch.items():
@@ -1373,7 +1656,7 @@ def analyze_documents(documents: list[dict[str, Any]], notes: str = "") -> dict[
     analyzed_docs: list[dict[str, Any]] = []
     all_facts: list[dict[str, str]] = []
     company_patch: dict[str, Any] = {}
-    combined_text_parts: list[str] = []
+    seen_signatures: dict[str, str] = {}
 
     for index, item in enumerate(documents, start=1):
         filename = item.get("filename") or f"document-{index}.txt"
@@ -1383,24 +1666,41 @@ def analyze_documents(documents: list[dict[str, Any]], notes: str = "") -> dict[
         facts, patch = extract_document_facts(text, document_type)
         company_patch = merge_patch(company_patch, patch)
         all_facts.extend(facts)
-        if text:
-            combined_text_parts.append(f"[{document_type_label(document_type)}: {filename}]\n{text[:5000]}")
         ocr_status = build_ocr_status(filename, text, extraction_notes)
+        signature = content_signature(raw, text)
+        duplicate_of = seen_signatures.get(signature, "") if signature else ""
+        if signature and not duplicate_of:
+            seen_signatures[signature] = filename
+        evidence_snippets = build_evidence_snippets(text, document_type)
+        coverage_tags = build_coverage_tags(text, facts, evidence_snippets, document_type)
+        extraction_quality = document_extraction_quality(text, extraction_notes, ocr_status)
+        relevance_score = document_relevance_score(document_type, text, facts, evidence_snippets, coverage_tags)
+        priority = document_priority(relevance_score, extraction_quality, duplicate_of)
         analyzed_docs.append(
             {
                 "id": f"d{index}",
                 "filename": filename,
                 "documentType": document_type,
                 "documentTypeLabel": document_type_label(document_type),
+                "sha1": signature,
+                "byteSize": len(raw),
+                "duplicateOf": duplicate_of,
                 "extractedCharacters": len(text),
                 "summary": document_summary(text, document_type),
                 "facts": facts,
                 "notes": extraction_notes,
                 "ocrStatus": ocr_status,
+                "extractionQuality": extraction_quality,
+                "relevanceScore": relevance_score,
+                "priority": priority,
+                "coverageTags": coverage_tags,
+                "evidenceSnippets": evidence_snippets,
+                "recommendedUse": recommended_document_use(document_type, coverage_tags, relevance_score),
                 "preview": text[:1200],
             }
         )
 
+    combined_text_parts: list[str] = []
     if notes.strip():
         combined_text_parts.append(f"[추가 의견]\n{notes.strip()}")
         company_patch = merge_patch(company_patch, {"knowledge": {"additionalNotes": notes.strip()}})
@@ -1414,12 +1714,40 @@ def analyze_documents(documents: list[dict[str, Any]], notes: str = "") -> dict[
         seen_fact_keys.add(marker)
         unique_facts.append(fact)
 
+    library_summary = build_document_library_summary(analyzed_docs, unique_facts)
+    combined_text_parts = []
+    ranked_docs = sorted(
+        [doc for doc in analyzed_docs if not doc.get("duplicateOf")],
+        key=lambda doc: (doc.get("relevanceScore", 0), len(doc.get("facts", [])), doc.get("extractedCharacters", 0)),
+        reverse=True,
+    )
+    for doc in ranked_docs[:14]:
+        snippets = "\n".join(f"- {snippet.get('categoryLabel')}: {snippet.get('text')}" for snippet in doc.get("evidenceSnippets", [])[:5])
+        facts_text = "\n".join(f"- {fact.get('label')}: {fact.get('value')}" for fact in doc.get("facts", [])[:8])
+        combined_text_parts.append(
+            "\n".join(
+                part
+                for part in [
+                    f"[{doc.get('priority', '').upper()} {doc.get('relevanceScore', 0)}점 | {doc.get('documentTypeLabel')}: {doc.get('filename')}]",
+                    f"요약: {doc.get('summary', '')}",
+                    f"추천 활용: {doc.get('recommendedUse', '')}",
+                    f"핵심 증빙:\n{snippets}" if snippets else "",
+                    f"추출 사실:\n{facts_text}" if facts_text else "",
+                    f"원문 미리보기:\n{doc.get('preview', '')[:1800]}" if doc.get("preview") else "",
+                ]
+                if part
+            )
+        )
+    if notes.strip():
+        combined_text_parts.append(f"[추가 의견]\n{notes.strip()}")
+
     return {
         "documents": analyzed_docs,
         "facts": unique_facts,
         "companyPatch": company_patch,
+        "librarySummary": library_summary,
         "additionalNotes": notes.strip(),
-        "combinedText": "\n\n".join(combined_text_parts)[:25000],
+        "combinedText": "\n\n".join(combined_text_parts)[:40000],
         "analyzedAt": dt.datetime.now().isoformat(timespec="seconds"),
     }
 

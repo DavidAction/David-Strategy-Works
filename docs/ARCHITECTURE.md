@@ -26,6 +26,7 @@
 
 - `extract_text`: file text extraction and OCR hints
 - `analyze_documents`: company evidence analysis
+- `build_document_library_summary`: multi-document evidence scoring, coverage, duplicate detection, and extraction quality summary
 - `analyze_template`: grant form/question analysis
 - `generate_plan`: business plan generation orchestrator
 - `revise_plan_with_comments`: comment-driven revision generator
