@@ -358,6 +358,80 @@ def export_link(label: str, path: Path) -> dict[str, str]:
     return {"label": label, "url": export_file_url(path.name), "filename": path.name}
 
 
+def export_files_snapshot() -> list[dict[str, Any]]:
+    ensure_dirs()
+    now = dt.datetime.now()
+    files: list[dict[str, Any]] = []
+    for path in sorted(EXPORT_DIR.glob("*")):
+        if not path.is_file():
+            continue
+        stat = path.stat()
+        modified = dt.datetime.fromtimestamp(stat.st_mtime)
+        files.append(
+            {
+                "filename": path.name,
+                "bytes": stat.st_size,
+                "modifiedAt": modified.isoformat(timespec="seconds"),
+                "ageDays": max(0, (now - modified).days),
+                "url": export_file_url(path.name),
+            }
+        )
+    return files
+
+
+def export_retention_report(older_than_days: int | None = None) -> dict[str, Any]:
+    days = older_than_days or export_retention_days()
+    files = export_files_snapshot()
+    old_files = [item for item in files if int(item.get("ageDays") or 0) >= days]
+    total_bytes = sum(int(item.get("bytes") or 0) for item in files)
+    old_bytes = sum(int(item.get("bytes") or 0) for item in old_files)
+    return {
+        "status": "needs_cleanup" if old_files else "ok",
+        "retentionDays": days,
+        "fileCount": len(files),
+        "totalBytes": total_bytes,
+        "totalMb": round(total_bytes / 1024 / 1024, 2),
+        "cleanupCandidateCount": len(old_files),
+        "cleanupCandidateBytes": old_bytes,
+        "cleanupCandidateMb": round(old_bytes / 1024 / 1024, 2),
+        "cleanupCandidates": old_files[:200],
+        "latestFiles": sorted(files, key=lambda item: item.get("modifiedAt", ""), reverse=True)[:20],
+        "policy": [
+            f"{days}일 이상 지난 export 파일은 제출 완료 후 보관 또는 삭제 후보로 표시합니다.",
+            "실제 삭제는 명시 확인값이 있을 때만 수행합니다.",
+            "민감문서가 포함된 export는 GitHub에 올리지 않고 별도 보안 채널에 보관합니다.",
+        ],
+    }
+
+
+def cleanup_exports(older_than_days: int | None = None, dry_run: bool = True) -> dict[str, Any]:
+    report = export_retention_report(older_than_days)
+    candidates = report.get("cleanupCandidates") or []
+    deleted: list[str] = []
+    errors: list[dict[str, str]] = []
+    if not dry_run:
+        export_root = EXPORT_DIR.resolve()
+        for item in candidates:
+            target = (EXPORT_DIR / str(item.get("filename", ""))).resolve()
+            if export_root != target and export_root not in target.parents:
+                errors.append({"filename": item.get("filename", ""), "error": "blocked_path"})
+                continue
+            try:
+                if target.exists() and target.is_file():
+                    target.unlink()
+                    deleted.append(target.name)
+            except Exception as exc:
+                errors.append({"filename": target.name, "error": str(exc)})
+    return {
+        **report,
+        "dryRun": dry_run,
+        "deletedCount": len(deleted),
+        "deleted": deleted,
+        "errors": errors,
+        "remaining": export_retention_report(older_than_days) if deleted else report,
+    }
+
+
 def store_template_source(filename: str, data: bytes, pasted_text: str = "") -> dict[str, Any]:
     ensure_dirs()
     ext = Path(filename or "").suffix.lower()
@@ -892,6 +966,14 @@ def workspace_password() -> str:
 
 def export_blocking_enabled() -> bool:
     return os.environ.get("DSW_BLOCK_UNSAFE_EXPORT", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def export_retention_days() -> int:
+    raw = os.environ.get("DSW_EXPORT_RETENTION_DAYS", "30").strip()
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 30
 
 
 def provider_status() -> dict[str, Any]:
@@ -5161,7 +5243,9 @@ def visual_assets_to_paragraphs(visual_assets: dict[str, Any]) -> list[tuple[str
         paragraphs.append(("note", visual_assets["strategy"]))
     for table in visual_assets.get("tables", []):
         lines = [
+            f"제출용 캡션: {table.get('title', '표')}",
             f"배치 위치: {table.get('placement', '')}",
+            "자료 성격: 생성 본문 수치와 업로드 근거를 비교해 최종 제출 전 확인",
             " | ".join(table.get("columns", [])),
         ]
         for row in table.get("rows", []):
@@ -5169,14 +5253,19 @@ def visual_assets_to_paragraphs(visual_assets: dict[str, Any]) -> list[tuple[str
         paragraphs.append(("heading", table.get("title", "표")))
         paragraphs.append(("note", "\n".join(lines)))
     for graphic in visual_assets.get("infographics", []):
-        lines = [f"배치 위치: {graphic.get('placement', '')}", f"유형: {graphic.get('type', '')}"]
+        lines = [
+            f"제출용 캡션: {graphic.get('title', '인포그래픽')}",
+            f"배치 위치: {graphic.get('placement', '')}",
+            f"유형: {graphic.get('type', '')}",
+            "자료 성격: 심사위원이 사업 논리를 빠르게 스캔하도록 돕는 구조화 도식",
+        ]
         for node in graphic.get("nodes", []):
             lines.append(f"{node.get('label', '')}: {node.get('text', '')}")
         paragraphs.append(("heading", graphic.get("title", "인포그래픽")))
         paragraphs.append(("note", "\n".join(lines)))
     for brief in visual_assets.get("imageBriefs", []):
         paragraphs.append(("heading", brief.get("title", "이미지 생성 브리프")))
-        paragraphs.append(("note", f"배치 위치: {brief.get('placement', '')}\n모델: {brief.get('model', '')}\n프롬프트: {brief.get('prompt', '')}"))
+        paragraphs.append(("note", f"제출용 캡션: {brief.get('title', '이미지')}\n배치 위치: {brief.get('placement', '')}\n모델: {brief.get('model', '')}\n프롬프트: {brief.get('prompt', '')}"))
     return paragraphs
 
 
@@ -5562,7 +5651,7 @@ def create_hwpx(plan: dict[str, Any], output_path: Path) -> None:
     if visual_media:
         paragraphs.append(("heading", "시각자료 첨부 매니페스트"))
         for asset in visual_media:
-            paragraphs.append(("note", f"{asset['title']} ({asset['type']}) - HWPX 패키지 {asset['archivePath']}에 SVG 원본을 포함했습니다."))
+            paragraphs.append(("note", f"제출용 캡션: {asset['title']}\n유형: {asset['type']}\n본문 배치: 표·인포그래픽 배치 설계 섹션 참조\n첨부 경로: HWPX 패키지 {asset['archivePath']}"))
     section_body = "\n".join(paragraph_xml(text, kind, index) for index, (kind, text) in enumerate(paragraphs, start=1))
     section_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <hp:sec xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head">
@@ -5618,6 +5707,24 @@ def create_hwpx(plan: dict[str, Any], output_path: Path) -> None:
         f'    <opf:item id="{xml_escape(asset["id"])}" href="{xml_escape(asset["href"])}" media-type="image/svg+xml"/>'
         for asset in visual_media
     )
+    visual_manifest_item = '    <opf:item id="visual-assets-manifest" href="Media/visual-assets-manifest.json" media-type="application/json"/>' if visual_media else ""
+    visual_manifest_json = json.dumps(
+        {
+            "assets": [
+                {
+                    "id": asset["id"],
+                    "title": asset["title"],
+                    "type": asset["type"],
+                    "href": asset["href"],
+                    "archivePath": asset["archivePath"],
+                }
+                for asset in visual_media
+            ],
+            "note": "SVG 원본은 HWPX 패키지 내부에 포함되며, 본문에는 제출용 캡션과 배치 지시문을 표시합니다.",
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
     content_hpf = f'''<?xml version="1.0" encoding="UTF-8"?>
 <opf:package xmlns:opf="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
   <opf:metadata><opf:title>사업계획서</opf:title><opf:language>ko</opf:language></opf:metadata>
@@ -5625,6 +5732,7 @@ def create_hwpx(plan: dict[str, Any], output_path: Path) -> None:
     <opf:item id="header" href="header.xml" media-type="application/xml"/>
     <opf:item id="section0" href="section0.xml" media-type="application/xml"/>
     <opf:item id="pretendard-variable" href="Fonts/PretendardVariable.woff2" media-type="font/woff2"/>
+{visual_manifest_item}
 {visual_manifest}
   </opf:manifest>
   <opf:spine><opf:itemref idref="section0"/></opf:spine>
@@ -5644,6 +5752,8 @@ def create_hwpx(plan: dict[str, Any], output_path: Path) -> None:
         archive.writestr("Contents/content.hpf", content_hpf, compress_type=zipfile.ZIP_DEFLATED)
         archive.writestr("Contents/header.xml", header_xml, compress_type=zipfile.ZIP_DEFLATED)
         archive.writestr("Contents/section0.xml", section_xml, compress_type=zipfile.ZIP_DEFLATED)
+        if visual_media:
+            archive.writestr("Contents/Media/visual-assets-manifest.json", visual_manifest_json, compress_type=zipfile.ZIP_DEFLATED)
         for asset in visual_media:
             archive.writestr(asset["archivePath"], asset["data"], compress_type=zipfile.ZIP_DEFLATED)
         font_path = STATIC_DIR / "fonts" / "PretendardVariable.woff2"
@@ -6053,6 +6163,7 @@ class BriwellHandler(SimpleHTTPRequestHandler):
                 or path.startswith("/api/profiles")
                 or path.startswith("/api/versions")
                 or path.startswith("/api/ai/")
+                or path.startswith("/api/exports")
                 or path.startswith("/exports/")
             )
             if protected_get and not self.require_workspace_auth():
@@ -6074,6 +6185,13 @@ class BriwellHandler(SimpleHTTPRequestHandler):
                 return self.send_json(read_ai_usage_summary(max(1, min(limit, 1000))))
             if path == "/api/grant-dataset":
                 return self.send_json(read_grant_success_dataset())
+            if path == "/api/exports/retention":
+                query = urllib.parse.parse_qs(parsed.query)
+                try:
+                    days = int((query.get("days") or [str(export_retention_days())])[0])
+                except ValueError:
+                    days = export_retention_days()
+                return self.send_json(export_retention_report(max(1, days)))
             if path == "/api/versions":
                 query = urllib.parse.parse_qs(parsed.query)
                 profile_id = (query.get("profileId") or ["default-workspace"])[0]
@@ -6155,6 +6273,15 @@ class BriwellHandler(SimpleHTTPRequestHandler):
             if path == "/api/export/hwpx":
                 plan = payload.get("plan") or payload
                 return self.send_json(create_export(plan))
+            if path == "/api/exports/cleanup":
+                try:
+                    days = int(payload.get("days") or export_retention_days())
+                except ValueError:
+                    days = export_retention_days()
+                dry_run = not bool(payload.get("confirmDelete"))
+                if payload.get("confirmDelete") and payload.get("confirmation") != "DELETE_EXPORTS":
+                    return self.send_json({"error": "삭제하려면 confirmation 값으로 DELETE_EXPORTS를 전달해야 합니다."}, status=400)
+                return self.send_json(cleanup_exports(max(1, days), dry_run=dry_run))
             self.send_error(404, "Not found")
         except Exception as exc:
             self.send_error_json(500, exc)

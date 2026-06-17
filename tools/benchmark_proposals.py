@@ -34,19 +34,30 @@ def evaluate_case(case: dict[str, object]) -> dict[str, object]:
     unsupported = plan.get("unsupportedClaimAudit") or {}
     total_score = int(scorecard.get("score") or scorecard.get("totalScore") or 0)
     min_score = int(expected.get("minScore") or 0)
+    max_high_risk_claims = int(expected.get("maxHighRiskClaims", 0))
+    required_lock_status = str(expected.get("requiredEvidenceLockStatus", "locked"))
     required_phrases = [str(item) for item in expected.get("requiredPhrases", [])]
     body = "\n".join(section.get("content", "") for section in plan.get("sections", []))
     searchable = body + "\n" + json.dumps(company, ensure_ascii=False) + "\n" + json.dumps(plan, ensure_ascii=False)[:20000]
     missing_phrases = [phrase for phrase in required_phrases if phrase and phrase not in searchable]
-    passed = total_score >= min_score and not missing_phrases
+    high_risk_claims = int(unsupported.get("highRiskClaims", 0) or 0)
+    lock_status = str(evidence_lock.get("status", ""))
+    score_ok = total_score >= min_score
+    lock_ok = not required_lock_status or lock_status == required_lock_status
+    risk_ok = high_risk_claims <= max_high_risk_claims
+    passed = score_ok and lock_ok and risk_ok and not missing_phrases
     return {
         "name": case.get("name", "unnamed"),
         "passed": passed,
         "totalScore": total_score,
         "minScore": min_score,
         "sectionCount": len(plan.get("sections", [])),
-        "evidenceLockStatus": evidence_lock.get("status", ""),
-        "highRiskClaims": unsupported.get("highRiskClaims", 0),
+        "evidenceLockStatus": lock_status,
+        "requiredEvidenceLockStatus": required_lock_status,
+        "lockOk": lock_ok,
+        "highRiskClaims": high_risk_claims,
+        "maxHighRiskClaims": max_high_risk_claims,
+        "riskOk": risk_ok,
         "missingPhrases": missing_phrases,
     }
 

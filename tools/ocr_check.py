@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -14,9 +15,48 @@ sys.path.insert(0, str(ROOT))
 import server  # noqa: E402
 
 
+COMMON_TESSERACT_PATHS = [
+    Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
+    Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
+    Path(r"C:\tools\tesseract\tesseract.exe"),
+]
+
+COMMON_PDFTOPPM_PATHS = [
+    Path(r"C:\ProgramData\chocolatey\bin\pdftoppm.exe"),
+    Path(r"C:\tools\poppler\bin\pdftoppm.exe"),
+    Path(r"C:\Program Files\poppler\Library\bin\pdftoppm.exe"),
+    Path(r"C:\Program Files\poppler\bin\pdftoppm.exe"),
+]
+
+
+def resolve_command(command: str, common_paths: list[Path]) -> str:
+    resolved = shutil.which(command)
+    if resolved:
+        return resolved
+    path = Path(command)
+    if path.exists():
+        return str(path)
+    for candidate in common_paths:
+        if candidate.exists():
+            return str(candidate)
+    return ""
+
+
 def command_status(command: str) -> dict[str, object]:
-    resolved = shutil.which(command) or (command if Path(command).exists() else "")
+    common = COMMON_TESSERACT_PATHS if "tesseract" in command.lower() else COMMON_PDFTOPPM_PATHS
+    resolved = resolve_command(command, common)
     return {"command": command, "available": bool(resolved), "resolved": resolved}
+
+
+def tesseract_languages(tesseract_path: str) -> list[str]:
+    if not tesseract_path:
+        return []
+    try:
+        result = subprocess.run([tesseract_path, "--list-langs"], capture_output=True, text=True, timeout=20)
+    except Exception:
+        return []
+    lines = [line.strip() for line in (result.stdout or result.stderr).splitlines() if line.strip()]
+    return [line for line in lines if not line.lower().startswith("list of")]
 
 
 def analyze_file(path: Path) -> dict[str, object]:
@@ -46,6 +86,9 @@ def main() -> int:
         "ocrLanguage": os.environ.get("OCR_LANG", "kor+eng"),
         "files": [],
     }
+    result["tesseract"]["languages"] = tesseract_languages(str(result["tesseract"].get("resolved") or ""))
+    result["koreanReady"] = "kor" in result["tesseract"].get("languages", [])
+    result["pdfOcrReady"] = bool(result["tesseract"]["available"] and result["pdftoppm"]["available"])
     for item in args.files:
         path = Path(item).expanduser().resolve()
         result["files"].append(analyze_file(path) if path.exists() else {"filename": item, "error": "not_found"})

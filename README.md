@@ -75,9 +75,22 @@ python tools\benchmark_proposals.py
 python tools\ai_live_check.py --no-live
 python tools\ocr_check.py
 python tools\hwpx_template_probe.py
+python tools\export_retention.py
 ```
 
 실제 API 키를 `.env`에 넣은 뒤에는 `python tools\ai_live_check.py`로 Gemini/GPT/Claude 연결을 확인합니다. 정부 HWPX 양식 파일을 받은 경우 `python tools\hwpx_template_probe.py path\to\template.hwpx`로 표·셀·placeholder 구조를 먼저 진단하세요.
+
+스캔 PDF/이미지 OCR을 쓰려면 관리자 권한 PowerShell에서 다음을 실행한 뒤 `python tools\ocr_check.py --require-ocr`로 확인합니다.
+
+```powershell
+.\tools\install_ocr_windows.ps1
+```
+
+실제 정부지원사업 HWPX 샘플을 받은 경우에는 다음 명령으로 private runtime library에 누적합니다. `data/`는 GitHub에 올라가지 않습니다.
+
+```powershell
+python tools\import_hwpx_samples.py C:\path\to\template.hwpx
+```
 
 ## GitHub 업로드 주의
 

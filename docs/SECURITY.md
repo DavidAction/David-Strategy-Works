@@ -8,6 +8,7 @@ David Strategy Works is designed as a local-first workspace. Company documents, 
 - `exports/` stores generated HWPX, HTML, JSON, and template preservation packages.
 - `.env` stores API keys, optional workspace password, export gate settings, and local OCR command settings.
 - `data/ai_usage.jsonl` stores actual AI token/cost usage records when provider responses include token usage.
+- `data/templates/real_samples/` may contain redacted government form samples imported for private QA.
 - These paths are ignored by `.gitignore` and should not be committed.
 
 ## Sensitive Documents
@@ -28,3 +29,4 @@ Set `DSW_BLOCK_UNSAFE_EXPORT=true` to block export when unresolved evidence gaps
 4. Use separate company profiles for separate clients.
 5. Before outsourcing, provide sample/redacted data unless the contractor has permission to access real documents.
 6. If sharing the app on a local network, require `DSW_WORKSPACE_PASSWORD` and avoid committing `data/ai_usage.jsonl`.
+7. Review `python tools\export_retention.py` before and after submission; delete exports only after preserving the final submitted package.

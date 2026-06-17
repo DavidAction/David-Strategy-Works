@@ -11,6 +11,7 @@ const state = {
   currentVersionId: "",
   versionExports: {},
   grantDataset: null,
+  exportRetention: null,
 };
 
 const emptyCompany = {
@@ -375,6 +376,16 @@ async function loadGrantDataset() {
   } catch {
     state.grantDataset = null;
   }
+}
+
+async function loadExportRetention() {
+  try {
+    state.exportRetention = await api("/api/exports/retention");
+  } catch {
+    state.exportRetention = null;
+  }
+  renderExportRetention();
+  return state.exportRetention;
 }
 
 function currentWorkspacePayload() {
@@ -1397,6 +1408,29 @@ function renderWorkspaceManagement() {
   });
 }
 
+function renderExportRetention() {
+  const root = qs("#exportRetention");
+  if (!root) return;
+  const report = state.exportRetention;
+  if (!report) {
+    root.innerHTML = "";
+    return;
+  }
+  const policy = (report.policy || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  const latest = (report.latestFiles || [])
+    .slice(0, 5)
+    .map((file) => `${escapeHtml(file.filename || "")} · ${Number(file.bytes || 0).toLocaleString("ko-KR")} bytes`)
+    .join(" / ");
+  root.innerHTML = `
+    <article class="ops-card ${report.status === "ok" ? "ok" : "needs_review"}">
+      <span>Export 보관 정책</span>
+      <strong>전체 ${Number(report.fileCount || 0)}개 · ${Number(report.totalMb || 0)}MB · 정리 후보 ${Number(report.cleanupCandidateCount || 0)}개</strong>
+      <p>${Number(report.retentionDays || 0)}일 이상 지난 파일을 보관/삭제 검토 대상으로 표시합니다.</p>
+      <ul>${policy}${latest ? `<li>최근 파일: ${latest}</li>` : ""}</ul>
+    </article>
+  `;
+}
+
 function renderEvidenceTraceability() {
   const targets = [qs("#evidenceTraceability"), qs("#exportEvidenceTraceability")].filter(Boolean);
   const trace = state.plan?.evidenceTraceability;
@@ -1500,6 +1534,7 @@ async function exportPlan() {
     body: JSON.stringify({ plan: state.plan }),
   });
   renderExports(result);
+  await loadExportRetention();
   activatePanel("export");
   setStatus(result.blocked ? "근거 보완 필요: export가 차단되었습니다." : "파일 생성 완료");
 }
@@ -1900,6 +1935,11 @@ async function boot() {
   qs("#analyzeBtn").addEventListener("click", analyzeTemplate);
   qs("#generateBtn").addEventListener("click", generateDraft);
   qs("#exportBtn").addEventListener("click", exportPlan);
+  qs("#refreshRetentionBtn").addEventListener("click", async () => {
+    setStatus("Export 보관 정책 점검 중");
+    await loadExportRetention();
+    setStatus("Export 보관 정책 점검 완료");
+  });
   qs("#saveVersionBtn").addEventListener("click", saveDraftVersion);
   qs("#restoreVersionBtn").addEventListener("click", restoreDraftVersion);
   qs("#reviseBtn").addEventListener("click", reviseDraftFromComments);
@@ -1910,7 +1950,7 @@ async function boot() {
   });
 
   try {
-    await Promise.allSettled([loadAiSettings(), loadGrantDataset()]);
+    await Promise.allSettled([loadAiSettings(), loadGrantDataset(), loadExportRetention()]);
     await loadProfiles();
     if (state.activeProfileId) {
       await loadProfile(state.activeProfileId);

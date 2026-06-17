@@ -24,6 +24,7 @@
 13. Each version can be opened for editing, updated, and exported separately.
 14. Server optionally blocks unsafe exports when evidence/security gates fail.
 15. Server exports HWPX, review HTML, JSON data, SVG visual assets, package-level HWPX visual media, and template-preservation artifacts.
+16. Export-retention reporting identifies stale local deliverables and guarded cleanup can remove them only with explicit confirmation.
 
 ## Core Server Functions
 
@@ -41,6 +42,7 @@
 - `create_visual_asset_files`: renders proposal tables and infographics as deterministic SVG assets
 - `hwpx_visual_media_assets`: attaches generated SVG visual assets inside the HWPX package
 - `create_filled_template_attempt`: replaces explicit HWPX placeholders or falls back to an answer appendix
+- `export_retention_report` / `cleanup_exports`: reports and safely removes stale export artifacts
 - `ai_provider_health`: reports configured AI provider/model readiness
 - `read_ai_usage_summary`: reports actual token/cost usage records when API responses include usage metadata
 - `revise_plan_with_comments`: comment-driven revision generator
@@ -58,10 +60,11 @@
 - `data/ai_usage.jsonl`: provider usage ledger
 - `data/versions/`: draft edit/version snapshots
 - `exports/`: generated deliverables
+- `.env`: local-only API keys, OCR command paths, password gate, unsafe-export gate, and retention settings
 
 ## Extension Points
 
 - Improve semantic HWPX table/cell matching for forms without explicit placeholders.
-- Add OCR engines in `extract_text` and `ocr_image_bytes`.
+- Add production OCR installation and language-pack verification on each workstation.
 - Add authenticated multi-user persistence later.
 - Replace local JSON storage with database when productized.

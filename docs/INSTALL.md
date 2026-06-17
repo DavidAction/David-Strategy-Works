@@ -98,7 +98,8 @@ Then restart the app.
 
 - If the browser does not open, manually go to `http://127.0.0.1:8765/`.
 - If port `8765` is already used, edit `.env` and change `PORT=8766`, then restart.
-- If OCR is needed, install Tesseract and Poppler, set `TESSERACT_CMD`, `PDFTOPPM_CMD`, and `OCR_LANG` in `.env`, then run `python tools\ocr_check.py`.
+- If OCR is needed, open PowerShell as Administrator, run `.\tools\install_ocr_windows.ps1`, then run `python tools\ocr_check.py --require-ocr`.
 - If the app will be accessed from another device on your network, set `DSW_WORKSPACE_PASSWORD` in `.env`.
 - If you want export to fail closed when evidence gaps remain, set `DSW_BLOCK_UNSAFE_EXPORT=true`.
+- Generated exports are retained locally. Run `python tools\export_retention.py` to inspect cleanup candidates and `python tools\export_retention.py --delete --confirm DELETE_EXPORTS` only after submission is complete.
 - If Windows blocks PowerShell scripts, run `start-dsw.bat` instead.

@@ -32,6 +32,28 @@ def install_temp_runtime(tmp: Path) -> None:
     server.AI_USAGE_FILE = server.DATA_DIR / "ai_usage.jsonl"
 
 
+def create_placeholder_hwpx(path: Path) -> None:
+    section_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<hp:sec xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">
+  <hp:tbl>
+    <hp:tc>
+      <hp:p><hp:run><hp:t>{{answer_1}}</hp:t></hp:run></hp:p>
+    </hp:tc>
+    <hp:tc>
+      <hp:p><hp:run><hp:t>[답변2]</hp:t></hp:run></hp:p>
+    </hp:tc>
+  </hp:tbl>
+</hp:sec>
+"""
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("mimetype", "application/hwp+zip", compress_type=zipfile.ZIP_STORED)
+        archive.writestr("version.xml", '<?xml version="1.0" encoding="UTF-8"?><version app="fixture" hwpx="1.0"/>')
+        archive.writestr("META-INF/container.xml", "<container/>")
+        archive.writestr("Contents/content.hpf", "<package/>")
+        archive.writestr("Contents/header.xml", "<head/>")
+        archive.writestr("Contents/section0.xml", section_xml)
+
+
 def run() -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix="dsw-quality-") as tmp_dir:
         install_temp_runtime(Path(tmp_dir))
@@ -104,6 +126,15 @@ def run() -> dict[str, object]:
         hwpx_path = server.EXPORT_DIR / hwpx_file["filename"]
         with zipfile.ZipFile(io.BytesIO(hwpx_path.read_bytes())) as archive:
             entries = set(archive.namelist())
+            content_hpf = archive.read("Contents/content.hpf").decode("utf-8", errors="replace")
+
+        fixture_path = Path(tmp_dir) / "government-placeholder-fixture.hwpx"
+        create_placeholder_hwpx(fixture_path)
+        filled_path, filled_attempt = server.create_filled_template_attempt(revised, fixture_path, "fixture")
+        filled_text = ""
+        if filled_path:
+            with zipfile.ZipFile(filled_path) as archive:
+                filled_text = archive.read("Contents/section0.xml").decode("utf-8", errors="replace")
 
         unsafe_plan = json.loads(json.dumps(revised, ensure_ascii=False))
         unsafe_plan["evidenceLockReport"] = {"status": "needs_evidence"}
@@ -136,6 +167,10 @@ def run() -> dict[str, object]:
             "exportFiles": len(exported.get("files", [])),
             "svgFiles": len([item for item in exported.get("files", []) if item.get("filename", "").endswith(".svg")]),
             "hwpxMediaSvgFiles": len([item for item in entries if item.startswith("Contents/Media/") and item.endswith(".svg")]),
+            "hwpxVisualManifest": "Media/visual-assets-manifest.json" in content_hpf and "Contents/Media/visual-assets-manifest.json" in entries,
+            "filledTemplateStatus": filled_attempt.get("status"),
+            "filledTemplateReplacements": filled_attempt.get("placeholderReplacementCount", 0),
+            "filledTemplateContainsAnswer": "{{answer_1}}" not in filled_text and "[답변2]" not in filled_text,
             "hwpxEntriesOk": {
                 "mimetype",
                 "version.xml",
@@ -164,6 +199,10 @@ def run() -> dict[str, object]:
         assert checks["exportFiles"] >= 3, checks
         assert checks["svgFiles"] >= 1, checks
         assert checks["hwpxMediaSvgFiles"] >= 1, checks
+        assert checks["hwpxVisualManifest"], checks
+        assert checks["filledTemplateStatus"] == "cell_placeholders_filled", checks
+        assert checks["filledTemplateReplacements"] >= 2, checks
+        assert checks["filledTemplateContainsAnswer"], checks
         assert checks["hwpxEntriesOk"], checks
         assert checks["unsafeExportBlocked"], checks
         return checks

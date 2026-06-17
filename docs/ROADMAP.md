@@ -36,6 +36,9 @@
 - Workspace password protection for profiles, versions, AI operations, and exports
 - OCR adapter verification CLI
 - HWPX package-level SVG visual asset attachment
+- Export retention report and guarded cleanup tool
+- Private HWPX sample import/probe workflow
+- Expanded proposal benchmark cases across healthcare, manufacturing, and content export
 
 ## Next Production Steps
 

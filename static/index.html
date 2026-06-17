@@ -282,8 +282,12 @@
               <h2 id="exportTitle">제출 패키지</h2>
               <p>HWPX, 검토용 HTML, JSON, 원본 양식 보존 패키지를 생성합니다.</p>
             </div>
-            <button id="exportBtn" class="primary-btn" type="button">파일 생성</button>
+            <div class="panel-actions">
+              <button id="refreshRetentionBtn" class="ghost-btn" type="button">보관 정책 점검</button>
+              <button id="exportBtn" class="primary-btn" type="button">파일 생성</button>
+            </div>
           </div>
+          <div id="exportRetention" class="ops-grid"></div>
           <div id="qualityChecks" class="quality-grid"></div>
           <div id="exportAiEnginePanel" class="ai-engine-grid"></div>
           <div id="exportScorecard" class="scorecard-grid"></div>

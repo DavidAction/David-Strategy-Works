@@ -9,6 +9,7 @@ Run this first after every meaningful code change:
 ```powershell
 python tools\quality_smoke.py
 python tools\benchmark_proposals.py
+python tools\export_retention.py
 ```
 
 The smoke test checks document analysis, grant template analysis, draft generation, comment revision, export files, and HWPX package structure.
@@ -33,6 +34,7 @@ After real API keys are configured in `.env`, run `python tools\ai_live_check.py
 4. Upload a scanned PDF or image after installing Tesseract/Poppler and confirm OCR notes are shown.
 5. Confirm each document shows remediation actions when extraction is weak.
 6. Run `python tools\ocr_check.py` and confirm Tesseract, Poppler, and OCR language settings are reported correctly.
+7. On Windows, run `.\tools\install_ocr_windows.ps1` from Administrator PowerShell if OCR commands are unavailable.
 
 ## Draft Generation
 
@@ -61,6 +63,7 @@ After real API keys are configured in `.env`, run `python tools\ai_live_check.py
 7. If an original HWPX template was uploaded, run `python tools\hwpx_template_probe.py path\to\template.hwpx` and confirm the submission fidelity report and filled-template review file are exported.
 8. If the source HWPX contains `{{answer_1}}`, `{q1}`, `[답변1]`, or `__ANSWER_1__`, confirm the filled-template review file replaces the placeholder in place.
 9. Set `DSW_BLOCK_UNSAFE_EXPORT=true` and confirm unresolved high-risk evidence gaps block export with visible blocker messages.
+10. Run `python tools\import_hwpx_samples.py path\to\real-template.hwpx` for each redacted government form sample and confirm `data/templates/hwpx-sample-manifest.json` is updated.
 
 ## Handoff
 

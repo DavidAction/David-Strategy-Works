@@ -223,6 +223,14 @@ h3 {
   justify-content: flex-end;
 }
 
+.panel-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .primary-btn,
 .ghost-btn {
   min-height: 40px;

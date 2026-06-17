@@ -1,0 +1,92 @@
+{
+  "name": "sample_k_content_export",
+  "company": {
+    "basic": {
+      "name": "StoryWave Studio",
+      "industry": "콘텐츠 수출",
+      "stage": "초기 매출"
+    },
+    "business": {
+      "oneLine": "웹툰 IP를 숏폼 애니메이션과 글로벌 팬 커머스로 확장하는 콘텐츠 스튜디오",
+      "targetCustomer": "동남아와 북미의 모바일 웹툰·숏폼 애니메이션 팬",
+      "product": "웹툰 IP, 숏폼 애니메이션, 캐릭터 굿즈, 팬 커뮤니티 운영 패키지",
+      "problem": "초기 웹툰 IP는 해외 팬 접점과 2차 수익화 구조가 약해 단발 조회수에 머무른다.",
+      "solution": "인기 에피소드를 60초 애니메이션으로 재가공하고 팬 커머스와 커뮤니티를 연결한다.",
+      "differentiation": "IP 기획 단계부터 숏폼 전환과 굿즈화를 함께 설계해 제작비 대비 반복 수익 가능성을 높인다.",
+      "revenueModel": "플랫폼 라이선스, 광고 수익 배분, 굿즈 판매 마진, 브랜드 협업",
+      "stage": "파일럿 IP 2개 수익화 시작"
+    },
+    "market": {
+      "marketSize": "글로벌 웹툰·숏폼 애니메이션 팬덤 시장 중 영어권과 동남아 모바일 팬을 초기 시장으로 설정한다.",
+      "trend": "숏폼 영상 소비와 K-콘텐츠 팬덤 커머스가 동시에 성장하고 있다.",
+      "competitors": "웹툰 플랫폼 자체 영상화, MCN 숏폼 채널, 캐릭터 굿즈 대행사",
+      "goToMarket": "틱톡·유튜브 쇼츠 테스트, 현지 크리에이터 협업, 플랫폼 라이선스 피칭으로 진입한다."
+    },
+    "traction": {
+      "customers": "파일럿 IP 2개, 해외 팬 커뮤니티 4곳",
+      "partnerships": "동남아 크리에이터 3팀과 공동 캠페인 협의",
+      "metrics": "숏폼 12편 누적 조회 86만회, 팔로워 1.8만명, 굿즈 예약구매 620건",
+      "pilotResults": "테스트 캠페인에서 영상 시청 후 커머스 클릭률 4.2%를 확인했다."
+    },
+    "finance": {
+      "salesPlan": "2026년 IP 5개, 굿즈 예약구매 5,000건, 라이선스 2건으로 매출 1억2,000만원을 목표로 한다.",
+      "useOfFunds": "지원금은 애니메이션 제작 45%, 현지화 20%, 팬 커머스 구축 20%, 해외 마케팅 15%에 사용한다.",
+      "milestones": "2026년 3분기 IP 3개 숏폼화, 4분기 해외 커머스 오픈, 2027년 상반기 라이선스 2건",
+      "fundingNeed": "글로벌 파일럿과 현지화 제작을 위해 7,000만원이 필요하다.",
+      "costPlan": "애니메이션 제작 3,150만원, 현지화 1,400만원, 커머스 1,400만원, 마케팅 1,050만원"
+    },
+    "team": {
+      "founder": "대표는 웹툰 IP 기획과 글로벌 플랫폼 운영 7년 경험을 보유한다.",
+      "members": "스토리 PD, 애니메이터, 글로벌 커머스 매니저, 퍼포먼스 마케터로 구성된다.",
+      "advisors": "해외 라이선싱 전문가와 캐릭터 상품 MD가 자문한다."
+    },
+    "legal": {
+      "businessNumber": "123-45-67890"
+    }
+  },
+  "template": {
+    "title": "콘텐츠 글로벌 사업화 지원 사업계획서",
+    "questions": [
+      {"prompt": "콘텐츠 IP와 시장 문제"},
+      {"prompt": "제품/콘텐츠 구성과 차별성"},
+      {"prompt": "글로벌 진출 전략"},
+      {"prompt": "수익화 계획과 기대효과"}
+    ],
+    "requirements": [{"value": "해외 시장, 수익모델, 정량 성과 포함"}]
+  },
+  "options": {
+    "templateGuidance": {
+      "pageCount": "5",
+      "structure": "IP-팬덤-채널-수익화-확장",
+      "focusPoints": "해외 팬 반응, 커머스 전환, IP 확장성",
+      "strictFormat": true
+    },
+    "additionalNotes": "창작 설명보다 글로벌 매출화와 팬덤 데이터 중심으로 작성한다.",
+    "documentInsights": {
+      "combinedText": "StoryWave Studio는 웹툰 IP를 숏폼 애니메이션과 글로벌 팬 커머스로 확장하는 콘텐츠 수출 기업이다. 사업자등록번호는 123-45-67890이다. 파일럿 IP 2개, 해외 팬 커뮤니티 4곳, 동남아 크리에이터 3팀 협의를 보유한다. 숏폼 12편 누적 조회 86만회, 팔로워 1.8만명, 굿즈 예약구매 620건, 커머스 클릭률 4.2%를 확인했다. 인기 에피소드를 60초 애니메이션으로 재가공하고 팬 커머스와 커뮤니티를 연결한다. 2026년 IP 5개, 굿즈 예약구매 5,000건, 라이선스 2건, 매출 1억2,000만원을 목표로 한다. 2026년 3분기 IP 3개 숏폼화, 4분기 해외 커머스 오픈, 2027년 상반기 라이선스 2건을 추진한다. 글로벌 파일럿과 현지화 제작을 위해 7,000만원이 필요하다. 지원금은 애니메이션 제작 45%, 현지화 20%, 팬 커머스 20%, 해외 마케팅 15%에 사용한다. 애니메이션 제작 3,150만원, 현지화 1,400만원, 커머스 1,400만원, 마케팅 1,050만원으로 집행한다.",
+      "documents": [{"filename": "k-content-export-plan.txt", "documentType": "business_plan", "extractedCharacters": 700}],
+      "facts": [
+        {"key": "traction.metrics", "label": "팬덤 성과", "value": "2개, 4곳, 3팀, 12편, 86만회, 1.8만명, 620건, 4.2%", "source": "샘플 사업계획서"},
+        {"key": "finance.salesPlan", "label": "매출 계획", "value": "5개, 5,000건, 2건, 1억2,000만원", "source": "샘플 사업계획서"},
+        {"key": "finance.milestones", "label": "추진 일정", "value": "2026년 3분기 IP 3개, 4분기 해외 커머스, 2027년 상반기 라이선스 2건", "source": "샘플 사업계획서"},
+        {"key": "finance.fundingNeed", "label": "필요 자금", "value": "7,000만원", "source": "샘플 사업계획서"}
+      ],
+      "businessUnderstanding": {
+        "evidenceBank": [
+          {"area": "problem", "areaLabel": "문제", "source": "샘플 사업계획서", "text": "초기 웹툰 IP는 해외 팬 접점과 2차 수익화 구조가 약해 단발 조회수에 머무른다."},
+          {"area": "solution", "areaLabel": "솔루션", "source": "샘플 사업계획서", "text": "인기 에피소드를 60초 애니메이션으로 재가공하고 팬 커머스와 커뮤니티를 연결한다."},
+          {"area": "traction", "areaLabel": "성과", "source": "샘플 사업계획서", "text": "파일럿 IP 2개, 해외 팬 커뮤니티 4곳, 숏폼 12편 누적 조회 86만회, 팔로워 1.8만명, 굿즈 예약구매 620건, 클릭률 4.2%."},
+          {"area": "business_model", "areaLabel": "사업모델", "source": "샘플 사업계획서", "text": "플랫폼 라이선스, 광고 수익 배분, 굿즈 판매 마진, 브랜드 협업으로 수익화하며 2026년 매출 1억2,000만원을 목표로 한다."},
+          {"area": "roadmap", "areaLabel": "로드맵", "source": "샘플 사업계획서", "text": "2026년 3분기 IP 3개 숏폼화, 4분기 해외 커머스 오픈, 2027년 상반기 라이선스 2건을 추진한다."},
+          {"area": "budget", "areaLabel": "예산", "source": "샘플 사업계획서", "text": "글로벌 파일럿과 현지화 제작을 위해 7,000만원이 필요하다. 지원금은 애니메이션 제작 45%, 현지화 20%, 팬 커머스 구축 20%, 해외 마케팅 15%에 사용한다. 애니메이션 제작 3,150만원, 현지화 1,400만원, 커머스 1,400만원, 마케팅 1,050만원으로 집행한다."}
+        ]
+      }
+    }
+  },
+  "expected": {
+    "minScore": 75,
+    "maxHighRiskClaims": 0,
+    "requiredEvidenceLockStatus": "locked",
+    "requiredPhrases": ["StoryWave Studio", "콘텐츠 수출"]
+  }
+}
