@@ -80,6 +80,13 @@ python tools\export_retention.py
 
 실제 API 키를 `.env`에 넣은 뒤에는 `python tools\ai_live_check.py`로 Gemini/GPT/Claude 연결을 확인합니다. 정부 HWPX 양식 파일을 받은 경우 `python tools\hwpx_template_probe.py path\to\template.hwpx`로 표·셀·placeholder 구조를 먼저 진단하세요.
 
+API 키는 채팅이나 GitHub에 올리지 말고 로컬에서 다음 스크립트로 입력합니다.
+
+```powershell
+.\tools\set_api_keys_local.ps1
+python tools\ai_live_check.py
+```
+
 스캔 PDF/이미지 OCR을 쓰려면 관리자 권한 PowerShell에서 다음을 실행한 뒤 `python tools\ocr_check.py --require-ocr`로 확인합니다.
 
 ```powershell
