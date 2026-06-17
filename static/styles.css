@@ -480,6 +480,12 @@ select:focus {
   font-size: 12px;
 }
 
+.queue-actions .ghost-btn {
+  flex: 0 0 auto;
+  min-width: 112px;
+  white-space: nowrap;
+}
+
 .upload-queue {
   display: grid;
   gap: 8px;
