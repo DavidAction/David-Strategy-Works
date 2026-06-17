@@ -1640,6 +1640,454 @@ def build_document_library_summary(analyzed_docs: list[dict[str, Any]], facts: l
     }
 
 
+BUSINESS_UNDERSTANDING_AREAS: list[dict[str, Any]] = [
+    {
+        "id": "overview",
+        "label": "사업 개요",
+        "keywords": ["사업개요", "사업 개요", "아이템", "창업아이템", "비전", "미션", "핵심", "요약", "business", "overview"],
+    },
+    {
+        "id": "problem",
+        "label": "문제와 필요성",
+        "keywords": ["문제", "필요성", "불편", "pain", "pain point", "애로", "한계", "배경", "수요", "needs", "고객 니즈"],
+    },
+    {
+        "id": "customer",
+        "label": "고객과 사용 시나리오",
+        "keywords": ["고객", "사용자", "타깃", "목표 고객", "페르소나", "인터뷰", "VOC", "사용 시나리오", "customer", "user"],
+    },
+    {
+        "id": "solution",
+        "label": "해결 방식",
+        "keywords": ["해결", "솔루션", "서비스", "제품", "기능", "플랫폼", "기술", "제공", "solution", "service", "product"],
+    },
+    {
+        "id": "product",
+        "label": "제품/서비스 구성",
+        "keywords": ["MVP", "프로토타입", "제품 구성", "서비스 구성", "주요 기능", "개발", "기술 구현", "로드맵", "prototype"],
+    },
+    {
+        "id": "market",
+        "label": "시장과 경쟁",
+        "keywords": ["시장", "경쟁", "대체재", "TAM", "SAM", "SOM", "규모", "성장률", "트렌드", "market", "competitor"],
+    },
+    {
+        "id": "differentiation",
+        "label": "차별성과 진입장벽",
+        "keywords": ["차별", "경쟁력", "우위", "진입장벽", "독창", "혁신", "특허", "IP", "브랜드", "differentiation"],
+    },
+    {
+        "id": "traction",
+        "label": "검증/성과/증빙",
+        "keywords": ["검증", "성과", "매출", "고객", "계약", "MOU", "LOI", "파일럿", "실증", "지표", "전환", "traction"],
+    },
+    {
+        "id": "business_model",
+        "label": "수익모델과 사업화",
+        "keywords": ["수익", "BM", "비즈니스 모델", "가격", "매출", "구독", "판매", "사업화", "채널", "go-to-market", "revenue"],
+    },
+    {
+        "id": "finance_budget",
+        "label": "자금/예산/재무",
+        "keywords": ["자금", "예산", "사업비", "비용", "인건비", "외주", "재료비", "마케팅비", "재무", "funding", "budget"],
+    },
+    {
+        "id": "team",
+        "label": "팀 역량",
+        "keywords": ["대표", "팀", "역량", "경력", "전문성", "구성원", "채용", "파트너", "멘토", "advisor", "team"],
+    },
+    {
+        "id": "roadmap",
+        "label": "추진 일정과 마일스톤",
+        "keywords": ["일정", "마일스톤", "추진", "단계", "월", "분기", "계획", "완료", "출시", "roadmap", "milestone"],
+    },
+    {
+        "id": "impact",
+        "label": "기대효과",
+        "keywords": ["기대효과", "고용", "사회적", "파급", "지역", "ESG", "성과 확산", "impact", "효과"],
+    },
+    {
+        "id": "risk",
+        "label": "리스크와 보완계획",
+        "keywords": ["리스크", "위험", "보완", "대응", "한계", "관리", "대안", "risk", "mitigation"],
+    },
+]
+
+
+SECTION_UNDERSTANDING_MAP: dict[str, list[str]] = {
+    "overview": ["overview", "problem", "customer", "solution", "business_model", "traction"],
+    "problem": ["problem", "customer", "market", "traction"],
+    "solution": ["solution", "product", "problem", "customer", "differentiation"],
+    "market": ["market", "customer", "traction", "business_model"],
+    "differentiation": ["differentiation", "solution", "product", "market"],
+    "business_model": ["business_model", "traction", "market", "finance_budget"],
+    "growth": ["roadmap", "traction", "business_model", "market"],
+    "budget": ["finance_budget", "roadmap", "product", "traction"],
+    "team": ["team", "roadmap", "differentiation"],
+    "impact": ["impact", "traction", "market", "roadmap"],
+    "risk": ["risk", "roadmap", "finance_budget", "market"],
+}
+
+
+def document_extraction_completeness(
+    filename: str,
+    document_type: str,
+    text: str,
+    notes: list[str],
+    ocr_status: dict[str, Any],
+) -> dict[str, Any]:
+    length = len(clean_text(text))
+    ext = Path(filename or "").suffix.lower()
+    if ocr_status.get("status") == "needs_ocr" or (ext == ".hwp" and not length):
+        return {
+            "status": "blocked",
+            "score": 0,
+            "message": "원문 텍스트를 충분히 읽지 못했습니다. 스캔본 OCR 또는 원문 텍스트 붙여넣기가 필요합니다.",
+            "requiresReview": True,
+        }
+    complete_threshold = 1500 if document_type == "existing_business_plan" else 350
+    if length >= complete_threshold:
+        return {
+            "status": "complete",
+            "score": 100,
+            "message": "추출 가능한 텍스트 전체를 보존하고 사업계획서 작성 근거로 사용할 수 있습니다.",
+            "requiresReview": False,
+        }
+    if length >= 120:
+        return {
+            "status": "partial",
+            "score": 62,
+            "message": "핵심 텍스트는 추출됐지만 원문 전체성 확인이 필요합니다. 중요한 표/이미지는 추가 텍스트 입력을 권장합니다.",
+            "requiresReview": True,
+        }
+    failed = any("실패" in note or "failed" in note.lower() for note in notes)
+    return {
+        "status": "weak" if not failed else "blocked",
+        "score": 30 if not failed else 10,
+        "message": "추출 텍스트가 짧아 사업 이해 모델의 근거로 쓰기 어렵습니다. 원문 텍스트 보강이 필요합니다.",
+        "requiresReview": True,
+    }
+
+
+def business_candidate_segments(text: str) -> list[str]:
+    normalized = clean_text(text)
+    if not normalized:
+        return []
+    line_segments = []
+    for line in normalized.splitlines():
+        line = re.sub(r"\s+", " ", line).strip()
+        if 18 <= len(line) <= 700:
+            line_segments.append(line)
+    raw_blocks = re.split(r"\n\s*\n+", normalized)
+    segments: list[str] = list(line_segments)
+    for block in raw_blocks:
+        block = re.sub(r"\s+", " ", block).strip()
+        if not block:
+            continue
+        if 28 <= len(block) <= 700:
+            segments.append(block)
+            continue
+        if len(block) > 700:
+            sentences = re.split(r"(?<=[.!?。！？다])\s+", block)
+            window: list[str] = []
+            for sentence in sentences:
+                sentence = sentence.strip()
+                if not sentence:
+                    continue
+                window.append(sentence)
+                joined = " ".join(window)
+                if len(joined) >= 180:
+                    segments.append(joined[:700])
+                    window = []
+            if window:
+                joined = " ".join(window).strip()
+                if len(joined) >= 28:
+                    segments.append(joined[:700])
+    for line in evidence_candidate_lines(text):
+        if line not in segments:
+            segments.append(line)
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for segment in segments:
+        marker = re.sub(r"\W+", "", segment.lower())[:120]
+        if not marker or marker in seen:
+            continue
+        seen.add(marker)
+        deduped.append(segment)
+        if len(deduped) >= 1400:
+            break
+    return deduped
+
+
+def business_segment_score(segment: str, area: dict[str, Any]) -> int:
+    compact = segment.lower()
+    score = 0
+    for keyword in area.get("keywords", []):
+        if keyword.lower() in compact:
+            score += 12
+    if re.search(r"\d", segment):
+        score += 6
+    if re.search(r"\d+(?:\.\d+)?\s*(?:%|명|건|개|원|만원|억원|회|월|년|MOU|LOI)", segment, re.I):
+        score += 10
+    if any(token in compact for token in ["검증", "고객", "매출", "계약", "특허", "파일럿", "실증", "예산", "일정"]):
+        score += 6
+    if 80 <= len(segment) <= 420:
+        score += 4
+    return score
+
+
+def add_ranked_business_evidence(
+    bucket: list[dict[str, Any]],
+    source_doc: dict[str, Any],
+    area: dict[str, Any],
+    segment: str,
+    score: int,
+) -> None:
+    bucket.append(
+        {
+            "area": area["id"],
+            "areaLabel": area["label"],
+            "sourceDocumentId": source_doc.get("id", ""),
+            "source": source_doc.get("filename", ""),
+            "documentType": source_doc.get("documentType", ""),
+            "text": segment[:700],
+            "score": min(100, score),
+        }
+    )
+
+
+def dedupe_ranked_evidence(items: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    items = sorted(items, key=lambda item: item.get("score", 0), reverse=True)
+    seen: set[str] = set()
+    output: list[dict[str, Any]] = []
+    for item in items:
+        marker = re.sub(r"\W+", "", item.get("text", "").lower())[:110]
+        if not marker or marker in seen:
+            continue
+        seen.add(marker)
+        output.append(item)
+        if len(output) >= limit:
+            break
+    return output
+
+
+def synthesize_business_area(area: dict[str, Any], evidence: list[dict[str, Any]]) -> str:
+    if not evidence:
+        return ""
+    fragments = [clean_text(item.get("text", "")) for item in evidence[:3] if clean_text(item.get("text", ""))]
+    if not fragments:
+        return ""
+    joined = " ".join(fragments)
+    return joined[:900]
+
+
+def business_source_documents(analyzed_docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    unique_docs = [doc for doc in analyzed_docs if not doc.get("duplicateOf") and clean_text(doc.get("_fullText", ""))]
+    plan_docs = [doc for doc in unique_docs if doc.get("documentType") == "existing_business_plan"]
+    if plan_docs:
+        return sorted(plan_docs, key=lambda doc: doc.get("extractedCharacters", 0), reverse=True)
+    return sorted(unique_docs, key=lambda doc: doc.get("relevanceScore", 0), reverse=True)[:8]
+
+
+def build_business_plan_corpus(analyzed_docs: list[dict[str, Any]]) -> dict[str, Any]:
+    source_docs = business_source_documents(analyzed_docs)
+    documents: list[dict[str, Any]] = []
+    retained_total = 0
+    total_source = 0
+    for doc in source_docs:
+        text = clean_text(doc.get("_fullText", ""))
+        if not text:
+            continue
+        per_doc_limit = 90000 if doc.get("documentType") == "existing_business_plan" else 30000
+        remaining = max(0, 260000 - retained_total)
+        if remaining <= 0:
+            break
+        retained = text[: min(per_doc_limit, remaining)]
+        total_source += len(text)
+        retained_total += len(retained)
+        documents.append(
+            {
+                "documentId": doc.get("id", ""),
+                "filename": doc.get("filename", ""),
+                "documentType": doc.get("documentType", ""),
+                "documentTypeLabel": doc.get("documentTypeLabel", ""),
+                "sourceCharacters": len(text),
+                "retainedCharacters": len(retained),
+                "truncated": len(retained) < len(text),
+                "text": retained,
+            }
+        )
+    return {
+        "documents": documents,
+        "sourceDocumentCount": len(source_docs),
+        "totalSourceCharacters": total_source,
+        "retainedCharacters": retained_total,
+        "retentionPolicy": "기존 사업계획서는 원문 텍스트를 우선 보존하고, AI 입력 한도를 넘는 경우에도 앞부분 원문과 사업 이해 근거은행을 함께 제공합니다.",
+    }
+
+
+def build_business_understanding(analyzed_docs: list[dict[str, Any]], notes: str = "") -> dict[str, Any]:
+    source_docs = business_source_documents(analyzed_docs)
+    source_meta = [
+        {
+            "documentId": doc.get("id", ""),
+            "filename": doc.get("filename", ""),
+            "documentType": doc.get("documentType", ""),
+            "characters": doc.get("extractedCharacters", 0),
+            "completeness": doc.get("extractionCompleteness", {}),
+        }
+        for doc in source_docs
+    ]
+    coverage: list[dict[str, Any]] = []
+    knowledge: dict[str, Any] = {}
+    evidence_bank: list[dict[str, Any]] = []
+    for area in BUSINESS_UNDERSTANDING_AREAS:
+        candidates: list[dict[str, Any]] = []
+        for doc in source_docs:
+            for segment in business_candidate_segments(doc.get("_fullText", "")):
+                score = business_segment_score(segment, area)
+                if score >= 14:
+                    add_ranked_business_evidence(candidates, doc, area, segment, score)
+        area_evidence = dedupe_ranked_evidence(candidates, 8)
+        max_score = area_evidence[0].get("score", 0) if area_evidence else 0
+        confidence = min(100, max_score + len(area_evidence) * 6)
+        if len(area_evidence) >= 4 and confidence >= 62:
+            status = "strong"
+        elif area_evidence:
+            status = "partial"
+        else:
+            status = "missing"
+        synthesized = synthesize_business_area(area, area_evidence)
+        coverage.append(
+            {
+                "id": area["id"],
+                "label": area["label"],
+                "status": status,
+                "confidence": confidence,
+                "evidenceCount": len(area_evidence),
+                "sourceDocuments": sorted({item.get("source", "") for item in area_evidence if item.get("source")}),
+            }
+        )
+        knowledge[area["id"]] = {
+            "id": area["id"],
+            "label": area["label"],
+            "status": status,
+            "confidence": confidence,
+            "synthesized": synthesized,
+            "evidence": area_evidence[:5],
+        }
+        evidence_bank.extend(area_evidence[:3])
+
+    evidence_bank = dedupe_ranked_evidence(evidence_bank, 32)
+    complete_docs = [doc for doc in source_docs if doc.get("extractionCompleteness", {}).get("status") == "complete"]
+    partial_docs = [doc for doc in source_docs if doc.get("extractionCompleteness", {}).get("status") in {"partial", "weak"}]
+    blocked_docs = [doc for doc in source_docs if doc.get("extractionCompleteness", {}).get("status") == "blocked"]
+    missing = [item["label"] for item in coverage if item["status"] == "missing"]
+    directives = [
+        "기존 사업계획서의 원문 표현을 단순 요약하지 말고, 문제-고객-해결-시장-사업화-예산-일정의 논리 구조로 재배치합니다.",
+        "근거가 있는 수치, 고객 반응, 계약/검증, 예산 항목은 새 양식의 해당 문항에 직접 연결합니다.",
+        "원문에서 확인되지 않는 수치나 성과는 생성하지 않고 보완 필요 항목으로 남깁니다.",
+    ]
+    if notes.strip():
+        directives.append("사용자 추가 의견도 기존 사업계획서 이해 모델과 함께 반영합니다.")
+    return {
+        "sourceDocuments": source_meta,
+        "coverage": coverage,
+        "knowledge": knowledge,
+        "evidenceBank": evidence_bank,
+        "extractionCompleteness": {
+            "sourceDocumentCount": len(source_docs),
+            "completeDocuments": len(complete_docs),
+            "partialDocuments": len(partial_docs),
+            "blockedDocuments": len(blocked_docs),
+            "totalExtractedCharacters": sum(doc.get("extractedCharacters", 0) for doc in source_docs),
+            "warnings": [
+                f"{doc.get('filename', '')}: {doc.get('extractionCompleteness', {}).get('message', '')}"
+                for doc in partial_docs + blocked_docs
+            ][:8],
+        },
+        "writingDirectives": directives,
+        "missingCriticalDetails": missing[:8],
+    }
+
+
+def build_business_understanding_patch(understanding: dict[str, Any]) -> dict[str, Any]:
+    mapping = {
+        "overview": ("business", "oneLine"),
+        "problem": ("business", "problem"),
+        "customer": ("business", "targetCustomer"),
+        "solution": ("business", "solution"),
+        "product": ("business", "product"),
+        "market": ("market", "marketSize"),
+        "differentiation": ("business", "differentiation"),
+        "traction": ("traction", "metrics"),
+        "business_model": ("business", "revenueModel"),
+        "finance_budget": ("finance", "useOfFunds"),
+        "team": ("team", "members"),
+        "roadmap": ("finance", "milestones"),
+        "impact": ("impact", "socialValue"),
+        "risk": ("knowledge", "riskNotes"),
+    }
+    patch: dict[str, Any] = {}
+    knowledge = understanding.get("knowledge") or {}
+    for area_id, (group, key) in mapping.items():
+        synthesized = clean_text((knowledge.get(area_id) or {}).get("synthesized", ""))
+        if not synthesized:
+            continue
+        patch.setdefault(group, {})[key] = compact_value(synthesized)
+    return patch
+
+
+def business_understanding_summary_for_context(understanding: dict[str, Any]) -> str:
+    lines: list[str] = []
+    for item in understanding.get("coverage", []):
+        if item.get("status") == "missing":
+            continue
+        area = (understanding.get("knowledge") or {}).get(item.get("id"), {})
+        synthesized = clean_text(area.get("synthesized", ""))
+        if synthesized:
+            lines.append(f"- {item.get('label')}: {synthesized[:420]}")
+    if understanding.get("missingCriticalDetails"):
+        lines.append("보완 필요: " + ", ".join(understanding.get("missingCriticalDetails", [])[:6]))
+    return "\n".join(lines[:18])
+
+
+def public_document(doc: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in doc.items() if not key.startswith("_")}
+
+
+def document_insights_for_ai(document_insights: dict[str, Any]) -> dict[str, Any]:
+    if not document_insights:
+        return {}
+    documents = []
+    for doc in document_insights.get("documents", [])[:12]:
+        documents.append(
+            {
+                "id": doc.get("id", ""),
+                "filename": doc.get("filename", ""),
+                "documentType": doc.get("documentType", ""),
+                "documentTypeLabel": doc.get("documentTypeLabel", ""),
+                "extractedCharacters": doc.get("extractedCharacters", 0),
+                "extractionCompleteness": doc.get("extractionCompleteness", {}),
+                "summary": doc.get("summary", ""),
+                "facts": doc.get("facts", [])[:8],
+                "coverageTags": doc.get("coverageTags", [])[:6],
+                "evidenceSnippets": doc.get("evidenceSnippets", [])[:8],
+                "recommendedUse": doc.get("recommendedUse", ""),
+            }
+        )
+    return {
+        "businessUnderstanding": document_insights.get("businessUnderstanding") or {},
+        "businessPlanCorpus": document_insights.get("businessPlanCorpus") or {},
+        "combinedText": document_insights.get("combinedText", ""),
+        "companyPatch": document_insights.get("companyPatch") or {},
+        "facts": document_insights.get("facts", [])[:30],
+        "librarySummary": document_insights.get("librarySummary") or {},
+        "documents": documents,
+        "additionalNotes": document_insights.get("additionalNotes", ""),
+    }
+
+
 def merge_patch(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     merged = json.loads(json.dumps(base, ensure_ascii=False))
     for group, values in patch.items():
@@ -1674,6 +2122,7 @@ def analyze_documents(documents: list[dict[str, Any]], notes: str = "") -> dict[
         evidence_snippets = build_evidence_snippets(text, document_type)
         coverage_tags = build_coverage_tags(text, facts, evidence_snippets, document_type)
         extraction_quality = document_extraction_quality(text, extraction_notes, ocr_status)
+        extraction_completeness = document_extraction_completeness(filename, document_type, text, extraction_notes, ocr_status)
         relevance_score = document_relevance_score(document_type, text, facts, evidence_snippets, coverage_tags)
         priority = document_priority(relevance_score, extraction_quality, duplicate_of)
         analyzed_docs.append(
@@ -1691,12 +2140,16 @@ def analyze_documents(documents: list[dict[str, Any]], notes: str = "") -> dict[
                 "notes": extraction_notes,
                 "ocrStatus": ocr_status,
                 "extractionQuality": extraction_quality,
+                "extractionCompleteness": extraction_completeness,
                 "relevanceScore": relevance_score,
                 "priority": priority,
                 "coverageTags": coverage_tags,
                 "evidenceSnippets": evidence_snippets,
                 "recommendedUse": recommended_document_use(document_type, coverage_tags, relevance_score),
+                "fullTextRetained": bool(text),
+                "fullTextCharacters": len(text),
                 "preview": text[:1200],
+                "_fullText": text,
             }
         )
 
@@ -1714,8 +2167,15 @@ def analyze_documents(documents: list[dict[str, Any]], notes: str = "") -> dict[
         seen_fact_keys.add(marker)
         unique_facts.append(fact)
 
+    business_understanding = build_business_understanding(analyzed_docs, notes)
+    if business_understanding.get("knowledge"):
+        company_patch = merge_patch(company_patch, build_business_understanding_patch(business_understanding))
+    business_plan_corpus = build_business_plan_corpus(analyzed_docs)
     library_summary = build_document_library_summary(analyzed_docs, unique_facts)
     combined_text_parts = []
+    understanding_text = business_understanding_summary_for_context(business_understanding)
+    if understanding_text:
+        combined_text_parts.append("[기존 사업계획서 심층 이해 모델]\n" + understanding_text)
     ranked_docs = sorted(
         [doc for doc in analyzed_docs if not doc.get("duplicateOf")],
         key=lambda doc: (doc.get("relevanceScore", 0), len(doc.get("facts", [])), doc.get("extractedCharacters", 0)),
@@ -1742,7 +2202,9 @@ def analyze_documents(documents: list[dict[str, Any]], notes: str = "") -> dict[
         combined_text_parts.append(f"[추가 의견]\n{notes.strip()}")
 
     return {
-        "documents": analyzed_docs,
+        "businessUnderstanding": business_understanding,
+        "businessPlanCorpus": business_plan_corpus,
+        "documents": [public_document(doc) for doc in analyzed_docs],
         "facts": unique_facts,
         "companyPatch": company_patch,
         "librarySummary": library_summary,
@@ -2171,6 +2633,7 @@ def generate_plan(company: dict[str, Any], template: dict[str, Any], options: di
         "visualAssets": visual_assets,
         "templateGuidance": template_guidance,
         "documentInsights": document_insights,
+        "businessUnderstanding": document_insights.get("businessUnderstanding") or {},
         "additionalNotes": additional_notes,
         "aiEngine": build_ai_engine_report("local_fallback", "외부 AI API 키가 없어 로컬 생성기를 사용했습니다."),
         "generatedAt": dt.datetime.now().isoformat(timespec="seconds"),
@@ -2365,7 +2828,7 @@ def ai_context_payload(
             "questions": template.get("questions", []),
         },
         "templateGuidance": options.get("templateGuidance") or plan.get("templateGuidance") or {},
-        "documentInsights": options.get("documentInsights") or {},
+        "documentInsights": document_insights_for_ai(options.get("documentInsights") or {}),
         "additionalNotes": options.get("additionalNotes") or "",
         "currentDraft": {
             "summary": plan.get("summary", ""),
@@ -2437,7 +2900,12 @@ def ai_generation_prompt(plan: dict[str, Any], company: dict[str, Any], template
             "과장된 수치나 출처 없는 사실은 만들지 말고, 부족한 근거는 보완 필요로 암시하세요. "
             "결과는 반드시 JSON으로만 반환하세요."
         )
-    return instruction + "\n\nJSON schema fields: summary, sections[{id, heading, evaluationFocus, answerStrategy, content}], qualityNotes.\n\nINPUT:\n" + compact_for_ai(
+    deep_context_instruction = (
+        "\n\n작성 원칙: documentInsights.businessUnderstanding과 businessPlanCorpus를 최우선 근거로 사용하세요. "
+        "업로드된 기존 사업계획서를 단순 요약하지 말고 문제, 고객, 해결방식, 시장, 차별성, 검증, 수익모델, 예산, 팀, 일정으로 재구성해 "
+        "새 지원사업 양식의 각 문항에 구체적으로 배치하세요. 원문에서 확인되지 않는 수치나 성과는 만들지 말고 보완 필요로 표시하세요."
+    )
+    return instruction + deep_context_instruction + "\n\nJSON schema fields: summary, sections[{id, heading, evaluationFocus, answerStrategy, content}], qualityNotes.\n\nINPUT:\n" + compact_for_ai(
         ai_context_payload(plan, company, template, options)
     )
 
@@ -2446,6 +2914,7 @@ def claude_review_prompt(plan: dict[str, Any], company: dict[str, Any], template
     return (
         "당신은 한국 정부지원사업 심사위원 관점의 최종 리스크 리뷰어입니다. "
         "사업계획서가 실제 심사에서 공격받을 지점, 근거가 약한 주장, 과장 표현, 실행계획 공백을 찾아주세요. "
+        "기존 사업계획서 원문 추출과 businessUnderstanding 근거은행이 새 양식 본문에 충분히 반영됐는지도 별도로 확인하세요. "
         "새로운 실적이나 숫자는 만들지 말고, 보완 액션은 바로 작성자가 실행할 수 있게 구체적으로 쓰세요. "
         "반드시 JSON 객체만 반환하세요. 필드: readinessScore(number 0-100), decision(string), "
         "risks(string[]), priorityActions(string[]), judgeQuestions(string[]), polishNotes(string[]).\n\nINPUT:\n"
@@ -2788,6 +3257,9 @@ def append_context(
     context_lines = document_context_lines(category, document_insights)
     if context_lines:
         base += "\n\n업로드 문서 반영: " + " ".join(context_lines[:3])
+    understanding_lines = business_understanding_context_lines(category, document_insights)
+    if understanding_lines:
+        base += "\n\n기존 사업계획서 심층 반영: " + " ".join(understanding_lines[:4])
     if planned_role:
         base += f"\n\n전체 구성 반영: 이 항목은 '{planned_role}' 역할을 하도록 작성합니다."
     if template_guidance.get("focusPoints") and category in {"overview", "problem", "solution", "market", "differentiation", "business_model"}:
@@ -2797,6 +3269,28 @@ def append_context(
     if template_guidance.get("formatRules") and category in {"overview", "budget", "growth"}:
         base += "\n\n형식 유의사항: " + template_guidance["formatRules"][:500]
     return base
+
+
+def business_understanding_context_lines(category: str, document_insights: dict[str, Any]) -> list[str]:
+    understanding = (document_insights or {}).get("businessUnderstanding") or {}
+    knowledge = understanding.get("knowledge") or {}
+    if not knowledge:
+        return []
+    area_ids = SECTION_UNDERSTANDING_MAP.get(category, ["overview", "problem", "solution"])
+    lines: list[str] = []
+    for area_id in area_ids:
+        area = knowledge.get(area_id) or {}
+        if area.get("status") == "missing":
+            continue
+        synthesized = clean_text(area.get("synthesized", ""))
+        evidence = area.get("evidence") or []
+        if synthesized:
+            lines.append(f"{area.get('label', area_id)}는 기존 원문에서 {synthesized[:420]}")
+            continue
+        if evidence:
+            top = evidence[0]
+            lines.append(f"{area.get('label', area_id)} 근거: {clean_text(top.get('text', ''))[:420]}")
+    return lines[:6]
 
 
 def document_context_lines(category: str, document_insights: dict[str, Any]) -> list[str]:
@@ -3359,6 +3853,10 @@ def quality_checks(
 ) -> list[dict[str, Any]]:
     all_missing = sorted({field for section in sections for field in section.get("missingFields", [])})
     doc_count = len((document_insights or {}).get("documents", []))
+    business_understanding = (document_insights or {}).get("businessUnderstanding") or {}
+    understanding_coverage = business_understanding.get("coverage") or []
+    understood_count = sum(1 for item in understanding_coverage if item.get("status") in {"strong", "partial"})
+    blocked_extracts = (business_understanding.get("extractionCompleteness") or {}).get("blockedDocuments", 0)
     checks = [
         {
             "label": "회사 핵심 정보",
@@ -3394,6 +3892,17 @@ def quality_checks(
                 "message": ", ".join(label_for_field(field) for field in all_missing[:10]),
             }
         )
+    if business_understanding:
+        checks.append(
+            {
+                "label": "기존 사업계획서 심층 이해",
+                "status": "ok" if understood_count >= 8 and not blocked_extracts else "needs_work",
+                "message": (
+                    f"사업 이해 항목 {understood_count}/{len(understanding_coverage)}개를 원문 근거로 구성했습니다. "
+                    f"OCR/추출 보완 필요 문서 {blocked_extracts}건."
+                ),
+            }
+        )
     if format_validation:
         failing = [item for item in format_validation if item.get("status") != "ok"]
         checks.append(
@@ -3418,6 +3927,9 @@ def evaluate_proposal_strength(
     doc_insights = document_insights or {}
     doc_count = len(doc_insights.get("documents", []) or [])
     fact_count = len(doc_insights.get("facts", []) or [])
+    understanding = doc_insights.get("businessUnderstanding") or {}
+    understanding_evidence_count = len(understanding.get("evidenceBank", []) or [])
+    fact_count += min(10, understanding_evidence_count)
     validation_ok_ratio = (
         sum(1 for item in format_validation if item.get("status") == "ok") / len(format_validation)
         if format_validation
@@ -3589,6 +4101,10 @@ def build_summary(
     doc_count = len((document_insights or {}).get("documents", []))
     if doc_count:
         summary += f" 본 초안은 업로드된 회사 문서 {doc_count}건의 사실 정보와 기존 서술을 함께 반영했습니다."
+    understanding = (document_insights or {}).get("businessUnderstanding") or {}
+    covered = sum(1 for item in understanding.get("coverage", []) if item.get("status") in {"strong", "partial"})
+    if covered:
+        summary += f" 특히 기존 사업계획서 원문을 {covered}개 사업 이해 항목으로 재구성해 새 제출 양식의 문항별 근거로 연결했습니다."
     if additional_notes.strip():
         summary += " 사용자가 입력한 추가 의견도 이번 지원사업의 강조점으로 반영했습니다."
     template_guidance = template_guidance or {}

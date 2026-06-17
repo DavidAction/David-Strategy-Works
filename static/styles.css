@@ -615,6 +615,127 @@ select:focus {
   line-height: 1.55;
 }
 
+.business-understanding-panel {
+  border: 1px solid rgba(199, 166, 90, 0.28);
+  border-radius: 8px;
+  background: #141710;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.business-understanding-head span,
+.understanding-coverage span,
+.understanding-evidence span,
+.missing-detail-chips strong,
+.understanding-warnings strong {
+  display: block;
+  color: var(--subtle);
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.business-understanding-head strong {
+  display: block;
+  color: var(--ink);
+  line-height: 1.35;
+}
+
+.business-understanding-head p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.understanding-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.understanding-coverage {
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #101217;
+  padding: 10px;
+}
+
+.understanding-coverage.strong {
+  border-color: rgba(85, 183, 164, 0.38);
+  background: #12211e;
+}
+
+.understanding-coverage.partial {
+  border-color: rgba(118, 167, 216, 0.35);
+  background: #121b27;
+}
+
+.understanding-coverage.missing {
+  border-color: rgba(199, 166, 90, 0.3);
+  background: #1b1711;
+}
+
+.understanding-coverage strong {
+  color: var(--ink);
+}
+
+.understanding-coverage small {
+  color: var(--subtle);
+  line-height: 1.4;
+}
+
+.understanding-evidence {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.understanding-evidence li,
+.understanding-warnings {
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #101217;
+  padding: 10px;
+}
+
+.understanding-evidence p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+  font-size: 13px;
+}
+
+.missing-detail-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.missing-detail-chips strong {
+  margin: 0 4px 0 0;
+}
+
+.missing-detail-chips span {
+  border: 1px solid rgba(199, 166, 90, 0.32);
+  border-radius: 999px;
+  padding: 5px 8px;
+  color: var(--gold);
+  background: #1e1a12;
+  font-size: 12px;
+}
+
+.understanding-warnings ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  line-height: 1.55;
+  font-size: 12px;
+}
+
 .coverage-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));

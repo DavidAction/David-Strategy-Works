@@ -11,7 +11,7 @@
 
 1. Company profile is edited in the browser.
 2. User uploads company evidence documents.
-3. Server extracts text and facts, then proposes company profile patches.
+3. Server extracts text and facts, preserves existing business-plan source text, builds a structured business-understanding model, then proposes company profile patches.
 4. User uploads grant template or notice.
 5. Server extracts template questions, requirements, and template source metadata.
 6. User enters submission brief: page count, structure, focus points, format rules, comments.
@@ -27,6 +27,8 @@
 - `extract_text`: file text extraction and OCR hints
 - `analyze_documents`: company evidence analysis
 - `build_document_library_summary`: multi-document evidence scoring, coverage, duplicate detection, and extraction quality summary
+- `build_business_understanding`: reconstructs uploaded business plans into problem, customer, solution, market, traction, business model, budget, team, roadmap, impact, and risk evidence banks
+- `build_business_plan_corpus`: retains extracted source text for AI drafting context while tracking truncation and extraction completeness
 - `analyze_template`: grant form/question analysis
 - `generate_plan`: business plan generation orchestrator
 - `revise_plan_with_comments`: comment-driven revision generator

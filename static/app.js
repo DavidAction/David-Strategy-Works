@@ -525,7 +525,7 @@ function renderDocumentInsights() {
     return;
   }
 
-  renderDocumentLibrarySummary(insights.librarySummary);
+  renderDocumentLibrarySummary(insights.librarySummary, insights.businessUnderstanding);
   root.className = "list-stack";
   root.innerHTML = [...(insights.documents || [])]
     .sort((a, b) => Number(b.relevanceScore || 0) - Number(a.relevanceScore || 0))
@@ -557,7 +557,7 @@ function renderDocumentInsights() {
             ${ocr.status ? `<span class="ocr-badge ${escapeAttr(ocr.status)}">${escapeHtml(ocrLabel(ocr))}</span>` : ""}
           </div>
           <p class="hint">${escapeHtml(doc.summary || "")}</p>
-          <p class="micro">${priorityLabel(doc.priority)} · ${Number(doc.extractedCharacters || 0).toLocaleString()}자 추출 · ${Number(doc.byteSize || 0).toLocaleString()} bytes</p>
+          <p class="micro">${priorityLabel(doc.priority)} · ${Number(doc.extractedCharacters || 0).toLocaleString()}자 추출 · ${Number(doc.byteSize || 0).toLocaleString()} bytes · ${escapeHtml(completenessLabel(doc.extractionCompleteness))}</p>
           <p class="hint">${escapeHtml(doc.recommendedUse || "")}</p>
           ${coverage ? `<div class="coverage-chips">${coverage}</div>` : ""}
           ${snippets ? `<ol class="evidence-snippets">${snippets}</ol>` : ""}
@@ -581,7 +581,7 @@ function renderDocumentInsights() {
   renderMetrics();
 }
 
-function renderDocumentLibrarySummary(summary) {
+function renderDocumentLibrarySummary(summary, understanding = null) {
   const root = qs("#documentSummary");
   if (!root) return;
   if (!summary) {
@@ -615,6 +615,7 @@ function renderDocumentLibrarySummary(summary) {
       <strong>${Number(summary.totalDocuments || 0)}개 문서 · ${Number(summary.totalEvidenceSnippets || 0)}개 핵심 증빙 · ${Number(summary.totalFacts || 0)}개 사실</strong>
       <p>${Number(summary.totalCharacters || 0).toLocaleString()}자 추출. 점수가 높은 문서와 부족한 근거 영역을 기준으로 초안 생성에 반영합니다.</p>
     </article>
+    ${renderBusinessUnderstandingPanel(understanding)}
     <div class="coverage-grid">${coverage}</div>
     <div class="document-summary-columns">
       <section>
@@ -630,10 +631,71 @@ function renderDocumentLibrarySummary(summary) {
   `;
 }
 
+function renderBusinessUnderstandingPanel(understanding) {
+  if (!understanding) return "";
+  const completeness = understanding.extractionCompleteness || {};
+  const coverage = (understanding.coverage || [])
+    .map(
+      (item) => `
+        <article class="understanding-coverage ${escapeAttr(item.status || "")}">
+          <span>${escapeHtml(item.label)}</span>
+          <strong>${escapeHtml(understandingStatusLabel(item.status))}</strong>
+          <small>${Number(item.evidenceCount || 0)}개 근거 · 신뢰도 ${Number(item.confidence || 0)}점</small>
+        </article>
+      `
+    )
+    .join("");
+  const evidence = (understanding.evidenceBank || [])
+    .slice(0, 8)
+    .map(
+      (item) => `
+        <li>
+          <span>${escapeHtml(item.areaLabel || "사업 근거")} · ${escapeHtml(item.source || "")}</span>
+          <p>${escapeHtml(item.text || "")}</p>
+        </li>
+      `
+    )
+    .join("");
+  const missing = (understanding.missingCriticalDetails || []).map((item) => `<span>${escapeHtml(item)}</span>`).join("");
+  const warnings = (completeness.warnings || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  return `
+    <section class="business-understanding-panel">
+      <div class="business-understanding-head">
+        <span>기존 사업계획서 심층 이해</span>
+        <strong>${Number(completeness.totalExtractedCharacters || 0).toLocaleString()}자 원문 기반 · 완료 ${Number(completeness.completeDocuments || 0)}건 · 보완 ${Number(completeness.partialDocuments || 0)}건 · 차단 ${Number(completeness.blockedDocuments || 0)}건</strong>
+        <p>업로드한 기존 사업계획서를 문제, 고객, 솔루션, 시장, 사업화, 예산, 팀, 일정 단위로 재구성해 새 양식 작성 근거로 사용합니다.</p>
+      </div>
+      <div class="understanding-grid">${coverage}</div>
+      ${evidence ? `<ol class="understanding-evidence">${evidence}</ol>` : ""}
+      ${missing ? `<div class="missing-detail-chips"><strong>보완 필요</strong>${missing}</div>` : ""}
+      ${warnings ? `<div class="understanding-warnings"><strong>원문 추출 확인</strong><ul>${warnings}</ul></div>` : ""}
+    </section>
+  `;
+}
+
 function ocrLabel(ocr) {
   if (ocr.status === "completed_or_text_available") return "OCR/텍스트 확보";
   if (ocr.status === "needs_ocr") return "OCR 필요";
   return "텍스트 추출";
+}
+
+function completenessLabel(completeness) {
+  const labels = {
+    complete: "원문 추출 완료",
+    partial: "원문 일부 확인 필요",
+    weak: "원문 보강 필요",
+    blocked: "OCR/원문 입력 필요",
+  };
+  return labels[completeness?.status] || "원문 추출 확인";
+}
+
+function understandingStatusLabel(status) {
+  const labels = {
+    strong: "충분",
+    partial: "부분",
+    missing: "부족",
+  };
+  return labels[status] || "확인";
 }
 
 function priorityLabel(priority) {
