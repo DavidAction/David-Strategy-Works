@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>David Strategy Works</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand-block">
+          <div class="brand-mark">DS</div>
+          <div>
+            <strong>David Strategy Works</strong>
+            <span>Government Funding Strategy Suite</span>
+          </div>
+        </div>
+
+        <nav class="step-nav" aria-label="작업 단계">
+          <button class="step active" data-target="profile" type="button"><span>01</span>기업 인텔리전스</button>
+          <button class="step" data-target="documents" type="button"><span>02</span>근거자료 라이브러리</button>
+          <button class="step" data-target="template" type="button"><span>03</span>공고·양식 설계</button>
+          <button class="step" data-target="draft" type="button"><span>04</span>전략 초안 워룸</button>
+          <button class="step" data-target="export" type="button"><span>05</span>제출 패키지</button>
+        </nav>
+
+        <div class="status-panel">
+          <span class="status-dot"></span>
+          <span id="saveStatus">대기 중</span>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Strategic Proposal Advisory Suite</p>
+            <h1>정부지원사업 사업계획서 전략 설계실</h1>
+          </div>
+          <div class="toolbar">
+            <select id="profileSelect" aria-label="회사 프로필 선택">
+              <option value="">프로필 불러오는 중</option>
+            </select>
+            <button id="saveCompanyBtn" class="primary-btn" type="button">프로필 저장</button>
+          </div>
+        </header>
+
+        <section class="command-strip" aria-label="현재 작업 현황">
+          <div>
+            <span>회사</span>
+            <strong id="currentCompany">미입력</strong>
+          </div>
+          <div>
+            <span>업로드 문서</span>
+            <strong id="docCountMetric">0</strong>
+          </div>
+          <div>
+            <span>양식 문항</span>
+            <strong id="questionMetric">0</strong>
+          </div>
+          <div>
+            <span>초안 섹션</span>
+            <strong id="sectionMetric">0</strong>
+          </div>
+        </section>
+
+        <section id="profile" class="panel active" aria-labelledby="profileTitle">
+          <div class="panel-head">
+            <div>
+              <h2 id="profileTitle">기업 인텔리전스</h2>
+              <p>회사 기본정보, 법적 정보, 사업모델, 시장, 팀, 재무 정보를 회사별 프로필로 저장하고 다시 이어서 작업합니다.</p>
+            </div>
+            <span class="pill">Company Profile</span>
+          </div>
+          <div id="companyForm" class="form-grid"></div>
+        </section>
+
+        <section id="documents" class="panel" aria-labelledby="documentsTitle">
+          <div class="panel-head">
+            <div>
+              <h2 id="documentsTitle">근거자료 라이브러리</h2>
+              <p>기존 사업계획서, 사업자등록증, 등기부등본, 재무자료, 인증자료를 분석해 회사 프로필과 초안 근거로 전환합니다.</p>
+            </div>
+            <div class="toolbar compact">
+              <select id="documentTypeHint" aria-label="문서 유형">
+                <option value="">자동 분류</option>
+                <option value="existing_business_plan">기존 사업계획서</option>
+                <option value="business_registration">사업자등록증</option>
+                <option value="corporate_registry">등기부등본</option>
+                <option value="finance">재무자료</option>
+                <option value="ip_certification">지식재산·인증</option>
+                <option value="general">일반 참고자료</option>
+              </select>
+              <button id="analyzeDocsBtn" class="primary-btn" type="button">문서 분석</button>
+            </div>
+          </div>
+
+          <div class="document-layout">
+            <div class="upload-zone">
+              <label for="companyDocs">회사 문서</label>
+              <input id="companyDocs" type="file" multiple accept=".hwpx,.hwp,.docx,.pdf,.txt,.md,.json,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff" />
+              <label for="documentText">문서 텍스트 직접 입력</label>
+              <textarea id="documentText" rows="8" placeholder="스캔 PDF나 구형 HWP에서 복사한 내용을 붙여 넣을 수 있습니다."></textarea>
+              <label for="additionalNotes">추가 의견·업데이트</label>
+              <textarea id="additionalNotes" rows="7" placeholder="이번 지원사업에서 강조할 최근 성과, 변경사항, 심사위원에게 전달할 메시지를 적어주세요."></textarea>
+            </div>
+
+            <div class="document-board">
+              <div class="metric-row">
+                <div>
+                  <span class="metric-label">분석 문서</span>
+                  <strong id="documentCount">0</strong>
+                </div>
+                <div>
+                  <span class="metric-label">추출 사실</span>
+                  <strong id="factCount">0</strong>
+                </div>
+                <div>
+                  <span class="metric-label">프로필 보강</span>
+                  <strong id="patchCount">0</strong>
+                </div>
+              </div>
+              <div class="action-row">
+                <button id="applyDocPatchBtn" class="ghost-btn" type="button">분석 결과 반영</button>
+              </div>
+              <div id="documentResults" class="list-stack empty-state">분석된 회사 문서가 없습니다.</div>
+              <div id="factResults" class="fact-grid"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="template" class="panel" aria-labelledby="templateTitle">
+          <div class="panel-head">
+            <div>
+              <h2 id="templateTitle">공고·양식 설계</h2>
+              <p>지원사업 공고문과 제출 양식의 문항, 평가 포인트, 작성 제약을 분석하고 작성 방향을 지정합니다.</p>
+            </div>
+            <button id="analyzeBtn" class="primary-btn" type="button">양식 분석</button>
+          </div>
+
+          <div class="template-layout">
+            <div class="upload-zone">
+              <label for="templateFile">제출 양식 파일</label>
+              <input id="templateFile" type="file" accept=".hwpx,.hwp,.docx,.pdf,.txt,.md,.json,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff" />
+              <label for="templateText">공고문 또는 문항 텍스트</label>
+              <textarea id="templateText" rows="13" placeholder="공고문, 작성 양식, 평가 기준 내용을 붙여 넣어주세요."></textarea>
+            </div>
+            <div class="analysis-board">
+              <div class="metric-row">
+                <div>
+                  <span class="metric-label">감지 문항</span>
+                  <strong id="questionCount">0</strong>
+                </div>
+                <div>
+                  <span class="metric-label">추출 글자</span>
+                  <strong id="charCount">0</strong>
+                </div>
+                <div>
+                  <span class="metric-label">키워드</span>
+                  <strong id="keywordCount">0</strong>
+                </div>
+              </div>
+              <div id="analysisResults" class="list-stack empty-state">분석된 지원사업 양식이 없습니다.</div>
+            </div>
+          </div>
+
+          <div class="brief-board">
+            <div class="brief-head">
+              <div>
+                <h3>제출 설계 브리프</h3>
+                <p class="hint">목표 페이지, 전체 구성, 심사 포인트, 형식 규칙을 입력하면 초안 생성과 제출 형식 검증에 반영합니다.</p>
+              </div>
+              <label class="toggle-row" for="strictFormat">
+                <input id="strictFormat" type="checkbox" checked />
+                <span>제출 형식 엄수</span>
+              </label>
+            </div>
+            <div class="brief-grid">
+              <div class="field">
+                <label for="targetPages">목표 페이지 수</label>
+                <input id="targetPages" type="number" min="1" max="80" placeholder="예: 5" />
+              </div>
+              <div class="field wide">
+                <label for="structureBrief">전체 구성</label>
+                <textarea id="structureBrief" rows="5" placeholder="예: 1p 사업개요와 문제, 2p 솔루션과 차별성, 3p 시장·고객, 4p 사업화 전략, 5p 예산·일정·기대효과"></textarea>
+              </div>
+              <div class="field wide">
+                <label for="focusBrief">주안점·심사 포인트</label>
+                <textarea id="focusBrief" rows="4" placeholder="예: 기술성보다 사업화 가능성, 초기 고객 확보, 지원금 사용의 직접성, 고용 창출을 강조"></textarea>
+              </div>
+              <div class="field wide">
+                <label for="formatRules">제출 형식 규칙</label>
+                <textarea id="formatRules" rows="4" placeholder="예: 5페이지 이내, 표 양식 유지, 항목명 삭제 금지, 글자 10pt, 이미지 최소화"></textarea>
+              </div>
+              <div class="field wide">
+                <label for="templateComments">작성 코멘트</label>
+                <textarea id="templateComments" rows="4" placeholder="예: 팀 역량은 짧게, 시장성과 자금 사용 계획은 구체적으로, 심사위원 관점에서 리스크를 먼저 해소"></textarea>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="draft" class="panel" aria-labelledby="draftTitle">
+          <div class="panel-head">
+            <div>
+              <h2 id="draftTitle">전략 초안 워룸</h2>
+              <p>문서 근거, 직접 입력한 업데이트, 지원사업 양식과 작성 브리프를 반영해 문항별 초안을 생성하고 편집합니다.</p>
+            </div>
+            <div class="toolbar compact">
+              <input id="grantName" type="text" placeholder="지원사업명" />
+              <select id="lengthMode" aria-label="초안 길이">
+                <option value="balanced">표준</option>
+                <option value="short">간결</option>
+                <option value="deep">심화</option>
+              </select>
+              <button id="generateBtn" class="primary-btn" type="button">초안 생성</button>
+            </div>
+          </div>
+          <div class="version-bar">
+            <div>
+              <strong>초안 버전 관리</strong>
+              <span>수정본을 저장하고 이전 버전을 불러와 비교·복원합니다.</span>
+            </div>
+            <div class="toolbar compact">
+              <input id="versionLabel" type="text" placeholder="버전 메모" />
+              <button id="saveVersionBtn" class="ghost-btn" type="button">현재 초안 저장</button>
+              <select id="versionSelect" aria-label="저장된 초안 버전">
+                <option value="">저장된 버전 없음</option>
+              </select>
+              <button id="restoreVersionBtn" class="ghost-btn" type="button">버전 불러오기</button>
+            </div>
+          </div>
+          <div id="draftSummary" class="summary-strip">회사 프로필, 회사 문서, 지원사업 양식을 준비한 뒤 초안을 생성하세요.</div>
+          <div id="aiEnginePanel" class="ai-engine-grid"></div>
+          <div id="proposalScorecard" class="scorecard-grid"></div>
+          <div id="formatValidation" class="validation-grid"></div>
+          <div id="visualAssets" class="visual-assets-grid"></div>
+          <div id="draftSections" class="draft-stack"></div>
+        </section>
+
+        <section id="export" class="panel" aria-labelledby="exportTitle">
+          <div class="panel-head">
+            <div>
+              <h2 id="exportTitle">제출 패키지</h2>
+              <p>HWPX, 검토용 HTML, JSON, 원본 양식 보존 패키지를 생성합니다.</p>
+            </div>
+            <button id="exportBtn" class="primary-btn" type="button">파일 생성</button>
+          </div>
+          <div id="qualityChecks" class="quality-grid"></div>
+          <div id="exportAiEnginePanel" class="ai-engine-grid"></div>
+          <div id="exportScorecard" class="scorecard-grid"></div>
+          <div id="exportValidation" class="validation-grid"></div>
+          <div id="exportVisualAssets" class="visual-assets-grid"></div>
+          <div id="exportResults" class="export-list empty-state">생성된 파일이 없습니다.</div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

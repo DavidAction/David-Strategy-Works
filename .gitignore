@@ -1,0 +1,19 @@
+# Runtime data
+data/
+exports/
+server.log
+server.err.log
+__pycache__/
+*.pyc
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
