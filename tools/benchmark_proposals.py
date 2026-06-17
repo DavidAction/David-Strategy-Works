@@ -23,10 +23,11 @@ def load_cases(paths: list[Path]) -> list[dict[str, object]]:
     return cases
 
 
-def evaluate_case(case: dict[str, object]) -> dict[str, object]:
+def evaluate_case(case: dict[str, object], use_ai: bool = False) -> dict[str, object]:
     company = case.get("company") or {}
     template = case.get("template") or {}
-    options = case.get("options") or {}
+    options = dict(case.get("options") or {})
+    options.setdefault("useAI", use_ai)
     expected = case.get("expected") or {}
     plan = server.generate_plan(company, template, options)
     scorecard = plan.get("proposalScorecard") or {}
@@ -64,6 +65,7 @@ def evaluate_case(case: dict[str, object]) -> dict[str, object]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run deterministic proposal-quality benchmark cases.")
+    parser.add_argument("--live-ai", action="store_true", help="Allow benchmark cases to call configured AI providers.")
     parser.add_argument("cases", nargs="*", help="Case JSON files. Defaults to benchmarks/proposals/*.json.")
     args = parser.parse_args()
 
@@ -72,9 +74,10 @@ def main() -> int:
     if not paths:
         paths = sorted((ROOT / "benchmarks" / "proposals").glob("*.json"))
     cases = load_cases(paths) if paths else []
-    results = [evaluate_case(case) for case in cases]
+    results = [evaluate_case(case, use_ai=args.live_ai) for case in cases]
     summary = {
         "caseCount": len(results),
+        "liveAi": args.live_ai,
         "passed": sum(1 for item in results if item["passed"]),
         "failed": sum(1 for item in results if not item["passed"]),
         "results": results,

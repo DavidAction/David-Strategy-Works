@@ -78,6 +78,8 @@ python tools\hwpx_template_probe.py
 python tools\export_retention.py
 ```
 
+`python tools\benchmark_proposals.py`는 기본적으로 외부 AI를 호출하지 않는 결정론 벤치마크입니다. 실제 Gemini/GPT/Claude 호출까지 포함하려면 `python tools\benchmark_proposals.py --live-ai`로 실행합니다.
+
 실제 API 키를 `.env`에 넣은 뒤에는 `python tools\ai_live_check.py`로 Gemini/GPT/Claude 연결을 확인합니다. 정부 HWPX 양식 파일을 받은 경우 `python tools\hwpx_template_probe.py path\to\template.hwpx`로 표·셀·placeholder 구조를 먼저 진단하세요.
 
 API 키는 채팅이나 GitHub에 올리지 말고 로컬에서 다음 스크립트로 입력합니다.

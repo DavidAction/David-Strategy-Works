@@ -984,6 +984,19 @@ def provider_status() -> dict[str, Any]:
     }
 
 
+def gemini_draft_model_candidates() -> list[str]:
+    candidates = [
+        AI_MODEL_ASSIGNMENTS["primaryDraft"]["model"],
+        AI_MODEL_ASSIGNMENTS["documentAnalysis"]["model"],
+        "gemini-2.5-flash",
+    ]
+    unique: list[str] = []
+    for model in candidates:
+        if model and model not in unique:
+            unique.append(model)
+    return unique
+
+
 def ai_provider_health(live: bool = False) -> dict[str, Any]:
     providers = provider_status()
     checks: list[dict[str, Any]] = []
@@ -1005,7 +1018,25 @@ def ai_provider_health(live: bool = False) -> dict[str, Any]:
         if live and status.get("configured"):
             try:
                 if provider == "google":
-                    gemini_generate_content(model_map[provider], "Return {\"ok\": true} as JSON.", timeout=20)
+                    errors: list[str] = []
+                    used_model = ""
+                    for gemini_model in gemini_draft_model_candidates():
+                        try:
+                            gemini_generate_content(gemini_model, "Return {\"ok\": true} as JSON.", timeout=20)
+                            used_model = gemini_model
+                            break
+                        except Exception as exc:
+                            errors.append(f"{gemini_model}: {str(exc)[:220]}")
+                    if not used_model:
+                        raise RuntimeError(" | ".join(errors))
+                    if used_model != model_map[provider]:
+                        check["activeModel"] = used_model
+                        check["fallbackChecks"] = errors
+                        check["status"] = "ok_fallback"
+                        check["message"] = f"Primary Gemini model is unavailable, but fallback model {used_model} succeeded."
+                        check["liveChecked"] = True
+                        checks.append(check)
+                        continue
                 elif provider == "openai":
                     openai_responses_create(
                         {
@@ -1033,7 +1064,7 @@ def ai_provider_health(live: bool = False) -> dict[str, Any]:
             check["liveChecked"] = True
         checks.append(check)
     return {
-        "status": "ok" if all(item["status"] in {"ok", "configured_unverified", "not_configured"} for item in checks) else "needs_work",
+        "status": "ok" if all(item["status"] in {"ok", "ok_fallback", "configured_unverified", "not_configured"} for item in checks) else "needs_work",
         "live": live,
         "checks": checks,
         "checkedAt": dt.datetime.now().isoformat(timespec="seconds"),
@@ -3421,12 +3452,18 @@ def apply_gemini_draft(
     company: dict[str, Any],
     template: dict[str, Any],
     options: dict[str, Any],
-) -> dict[str, Any]:
-    model = AI_MODEL_ASSIGNMENTS["primaryDraft"]["model"]
+) -> tuple[dict[str, Any], str]:
     prompt = ai_generation_prompt(plan, company, template, options, "gemini_draft")
-    response = gemini_generate_content(model, prompt, ai_plan_schema(), timeout=120)
-    enhanced = parse_json_object(gemini_response_text(response))
-    return merge_ai_plan_output(plan, enhanced, company, "Gemini 3.5 초안 보완 메모")
+    errors: list[str] = []
+    for model in gemini_draft_model_candidates():
+        try:
+            response = gemini_generate_content(model, prompt, ai_plan_schema(), timeout=120)
+            enhanced = parse_json_object(gemini_response_text(response))
+            return merge_ai_plan_output(plan, enhanced, company, f"Gemini draft completed with {model}"), model
+        except Exception as exc:
+            errors.append(f"{model}: {exc}")
+            log_line(f"Gemini draft failed with {model}: {exc}")
+    raise RuntimeError(" | ".join(errors))
 
 
 def apply_openai_polish(
@@ -3517,8 +3554,8 @@ def enhance_plan_with_ai(
     if gemini_api_key():
         model = AI_MODEL_ASSIGNMENTS["primaryDraft"]["model"]
         try:
-            output = apply_gemini_draft(output, company, template, options)
-            pipeline.append({"stage": "한글 보고서 1차 초안", "provider": "Google", "model": model, "status": "ok"})
+            output, used_model = apply_gemini_draft(output, company, template, options)
+            pipeline.append({"stage": "한글 보고서 1차 초안", "provider": "Google", "model": used_model, "status": "ok"})
         except Exception as exc:
             errors.append(f"Gemini draft: {exc}")
             log_line(f"Gemini draft fallback: {exc}")
